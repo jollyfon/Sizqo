@@ -117,7 +117,12 @@
     '输出容器': 'Output container', '输出方式': 'Output mode', '高级选项': 'Advanced options', '编码速度': 'Encoding speed', '编码线程': 'Encoding threads',
     '0 = 自动': '0 = automatic', '控制模式': 'Control mode', '质量值': 'Quality value', '结果策略': 'Result policy',
     '目标码率': 'Target bitrate', '目标体积': 'Target size', '分辨率': 'Resolution', '帧率': 'Frame rate', '预设': 'Preset',
-    '全部': 'All', '图片': 'Images', '视频': 'Videos', '历史': 'History', '音频': 'Audio', '字幕': 'Subtitles', '保留': 'Keep', '缩放': 'Zoom'
+    '全部': 'All', '图片': 'Images', '视频': 'Videos', '历史': 'History', '音频': 'Audio', '字幕': 'Subtitles', '保留': 'Keep', '缩放': 'Zoom',
+    '正在检测视频编码能力…': 'Detecting video encoding support…', '视频预设不可用': 'Video presets unavailable',
+    '自动（按能力选择）': 'Automatic (based on capabilities)', '（当前运行时不可用）': ' (unavailable in this runtime)',
+    '（仅 Direct）': ' (Direct only)', '此版本当前不提供可运行的视频编码器。': 'This build has no runnable video encoders.',
+    'Direct 使用独立 FFmpeg 编码能力；编码器按当前运行时检测结果开放。': 'Direct uses bundled FFmpeg; encoders are offered per runtime detection.',
+    '视频能力探测失败': 'Video capability detection failed', '当前运行时不支持视频编码': 'Video encoding is not supported in this runtime'
   });
   const replacements = Object.entries(ENGLISH).sort((a, b) => b[0].length - a[0].length);
 

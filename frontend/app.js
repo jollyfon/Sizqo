@@ -182,7 +182,7 @@ var mediaFilter = 'all';
 var historyFilter = 'all';
 var mediaTaskSeq = 0;
 var videoOutputDir = null;
-var videoCapabilities = { backend: 'unavailable', available: false, reason: '正在检测视频编码能力…', encoders: [], muxers: [] };
+var videoCapabilities = { backend: 'unavailable', available: false, loading: true, reason: '正在检测视频编码能力…', encoders: [], muxers: [] };
 var videoPresets = [];
 var selectedVideoPresetId = 'balanced';
 var currentVideoOptions = window.SizqoVideo.normalizeOptions();
@@ -440,7 +440,14 @@ function renderVideoCapabilities() {
   }
   if (encoderSelect) {
     encoderSelect.innerHTML = '';
-    if (videoCapabilities.available) {
+    if (videoCapabilities.loading) {
+      var detecting = document.createElement('option');
+      detecting.value = 'auto';
+      detecting.textContent = localizeUiText('正在检测视频编码能力…');
+      detecting.disabled = true;
+      detecting.selected = true;
+      encoderSelect.appendChild(detecting);
+    } else if (videoCapabilities.available) {
       var autoOption = document.createElement('option');
       autoOption.value = 'auto';
       autoOption.textContent = localizeUiText('自动（按能力选择）');
@@ -482,7 +489,7 @@ function renderVideoCapabilities() {
     if (!videoPresets.length) {
       var unavailablePreset = document.createElement('option');
       unavailablePreset.value = 'balanced';
-      unavailablePreset.textContent = localizeUiText('视频预设不可用');
+      unavailablePreset.textContent = videoCapabilities.loading ? localizeUiText('正在检测视频编码能力…') : localizeUiText('视频预设不可用');
       unavailablePreset.disabled = true;
       presetSelect.appendChild(unavailablePreset);
     }
@@ -3464,6 +3471,10 @@ function loadCompressSettings() {
     applyUpdateProgress(event.payload || 0);
   }).catch(function() {});
   loadCompressSettings();
+  // 视频预设/编码器下拉由能力探测结果填充：启动即渲染「检测中」占位，
+  // 探测完成后 renderVideoCapabilities 会替换成真实选项。
+  renderVideoCapabilities();
+  loadVideoCapabilities();
   // 队列摘要里的「CPU 4/10」需要在进入设置页之前就拿到，所以启动即检测一次。
   loadCpuSetting().then(function() { updateQueueSummary(); }).catch(function() {});
   var modeSwitch = document.getElementById('processingModeSwitch');

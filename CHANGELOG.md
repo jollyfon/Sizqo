@@ -3,6 +3,17 @@
 Sizqo's versioning starts at 0.1.0. This file records user-visible changes;
 engineering rules live in [AGENTS.md](AGENTS.md).
 
+## 0.1.4 — video dropdown fix
+
+- Fixed the video settings panel's 预设 and 视频编码器 dropdowns being empty:
+  `loadVideoCapabilities()` was defined but never called, so runtime
+  capability detection and preset loading never ran. The startup flow now
+  renders a "detecting…" placeholder and populates both dropdowns when the
+  probe settles; the capability note explains the current runtime either way.
+- Regression assertions added to `tests/video-contract.cjs` (startup must
+  call the loader; detection must show a placeholder, not a fake
+  "unavailable").
+
 ## 0.1.3 — in-app updates
 
 - In-app (online) updates are live for the Direct edition, following the

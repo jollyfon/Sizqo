@@ -54,3 +54,12 @@ assert.equal(larger.skippedLarger, true);
 assert.equal(larger.success, false);
 assert.equal(larger.savings, -10);
 console.log('PASS: video options honor runtime capabilities, source timing, HDR safeguards, and honest size results');
+const nodeFs = require('node:fs');
+const nodePath = require('node:path');
+const appJs = nodeFs.readFileSync(nodePath.join(__dirname, '..', 'frontend', 'app.js'), 'utf8');
+const appWithoutLoader = appJs.replace(/async function loadVideoCapabilities\(\)[\s\S]*?\n}/, '');
+assert.match(appWithoutLoader, /loadVideoCapabilities\(\)/,
+  '启动流程必须调用 loadVideoCapabilities（只定义不调用 = 预设/编码器下拉永远空白）');
+assert.match(appJs, /videoCapabilities\.loading[\s\S]*?正在检测视频编码能力/,
+  '能力探测期间下拉必须显示「检测中」占位，而不是空白或假不可用');
+console.log('video dropdown wiring checked');
