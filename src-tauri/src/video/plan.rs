@@ -70,7 +70,7 @@ pub fn build(options:&VideoOptions,probe:&VideoProbe,caps:&CapabilityMatrix,budg
         let source=video.bit_rate.or(probe.bit_rate).unwrap_or(estimated*1000)/1000;
         let b=options.bitrate_kbps.unwrap_or(estimated.min(source*3/4).max(200));if !(32..=500000).contains(&b){return Err("Video bitrate range is 32…500000 kbps".into());}Some(b)
     }else{None};
-    Ok(EncodePlan {encoder,container:options.container.clone(),bitrate_kbps,crf,width,height,passes:if ["twoPass","targetSize"].contains(&options.mode.as_str()){2}else{1},threads:options.threads.max(1).min(budget.max(1)),warnings,options:options.clone()})
+    Ok(EncodePlan {encoder,container:options.container.clone(),bitrate_kbps,crf,width,height,passes:if ["twoPass","targetSize"].contains(&options.mode.as_str()){2}else{1},threads:if options.threads==0{budget.max(1)}else{options.threads.max(1).min(budget.max(1))},warnings,options:options.clone()})
 }
 impl EncodePlan {
     pub fn argv(&self,input:&Path,output:&Path,pass:u32,passlog:&Path)->Vec<String>{
@@ -99,4 +99,5 @@ impl EncodePlan {
     #[test]fn hdr_and_size_lower_bound_are_blocked(){let mut p=probe();p.hdr_kind="hdr".into();assert!(build(&VideoOptions::default(),&p,&caps(),3).is_err());let mut o=VideoOptions::default();o.encoder="libx264".into();o.mode="targetSize".into();o.target_mi_b=Some(0.0001);assert!(build(&o,&probe(),&caps(),3).is_err());}
     #[test]fn argv_preserves_paths_without_shell(){let mut o=VideoOptions::default();o.encoder="libx264".into();o.mode="crf".into();let p=build(&o,&probe(),&caps(),1).unwrap();let a=p.argv(Path::new("/tmp/a ' $().mov"),Path::new("/tmp/result.mp4"),1,Path::new("/tmp/stats"));assert!(a.contains(&"/tmp/a ' $().mov".into()));assert!(a.windows(2).any(|w|w==["-fps_mode","passthrough"]));assert!(!a.contains(&"-r".into()));}
     #[test]fn target_mib_contract(){let v=serde_json::to_value(VideoOptions::default()).unwrap();assert!(v.get("targetMiB").is_some());}
+    #[test]fn zero_threads_means_auto_budget(){let mut o=VideoOptions::default();o.threads=0;let p=build(&o,&probe(),&caps(),5).unwrap();assert_eq!(p.threads,5);o.threads=99;let p=build(&o,&probe(),&caps(),5).unwrap();assert_eq!(p.threads,5);}
 }
