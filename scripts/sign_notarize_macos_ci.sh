@@ -96,13 +96,13 @@ sign_app() {
 create_dmg() {
   local app="$1"
   local arch="$2"
-  local dmg="${OUTPUT_DIR}/OctoShrink_${RELEASE_TAG}_macos_${arch}.dmg"
+  local dmg="${OUTPUT_DIR}/Sizqo_${RELEASE_TAG}_macos_${arch}.dmg"
   local staging
-  staging="$(mktemp -d -t "octoshrink-${arch}")"
+  staging="$(mktemp -d -t "sizqo-${arch}")"
 
-  ditto "${app}" "${staging}/OctoShrink.app"
+  ditto "${app}" "${staging}/Sizqo.app"
   ln -s /Applications "${staging}/Applications"
-  hdiutil create -volname OctoShrink -srcfolder "${staging}" -ov -format UDZO "${dmg}" >/dev/null
+  hdiutil create -volname Sizqo -srcfolder "${staging}" -ov -format UDZO "${dmg}" >/dev/null
   codesign --force --timestamp --sign "${SIGNING_IDENTITY}" "${dmg}"
   rm -r "${staging}"
   echo "${dmg}"
@@ -166,7 +166,7 @@ for dmg in "${ARM_DMG}" "${INTEL_DMG}" "${UNIVERSAL_DMG}"; do
 done
 
 log "Create the stapled Universal updater archive"
-tar -czf "${OUTPUT_DIR}/OctoShrink_${RELEASE_TAG}_macos_universal.app.tar.gz" \
+tar -czf "${OUTPUT_DIR}/Sizqo_${RELEASE_TAG}_macos_universal.app.tar.gz" \
   -C "$(dirname "${UNIVERSAL_APP}")" "$(basename "${UNIVERSAL_APP}")"
 
 log "macOS release assets are signed, notarized, and stapled"

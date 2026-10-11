@@ -8,6 +8,7 @@ const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const {
   slice, installStateMachine, installQueueCore, installSessionModel, installQueueRowPainter,
+  installMediaWorkspaceStubs,
 } = require('./app-slices.cjs');
 const summary = { textContent: '' };
 const context_compressBtnText = { innerHTML: '' };
@@ -18,7 +19,7 @@ let progress;
 let sessionSeq = 0;
 const context = vm.createContext({
   console, Set, Map, Promise,
-  window: { OctoShrinkI18n: { translateText: value => value } },
+  window: { SizqoI18n: { translateText: value => value } },
   files: [], inputPaths: [], pendingAutoCompress: false, processingMode: 'advanced',
   queueItems: new Map(),
   fileRows: {},
@@ -41,7 +42,7 @@ const context = vm.createContext({
   getCurrentCompressionConfig: () => ({ options: {} }),
   listen: async (_, handler) => { progress = payload => handler({payload}); return () => {}; },
   invoke: async (command, args) => {
-    if (command === 'expand_image_files') return args.filePaths;
+    if (command === 'probe_media') return args.paths.map(path => ({ path, mediaKind: 'image', size: 1024 }));
     if (command === 'get_file_sizes') return args.filePaths.map(() => 1024);
     return new Promise(resolve => runs.push({ command, paths: args.filePaths, sessionId: args.sessionId, queueRevision: args.queueRevision, resolve }));
   },
@@ -51,6 +52,7 @@ const context = vm.createContext({
   updateStats() {}, showResults() {}, applyQueueView() {},
   refreshHistoryIfOpen() {}, emitCompareResultsChanged() {}, showErrorDetail() {},
 });
+installMediaWorkspaceStubs(context);
 vm.runInContext(slice('function uniqueFilePaths(', 'async function renderFileQueue('), context);
 vm.runInContext(slice('function processingActionText(', 'function setProcessingMode('), context);
 // 状态机与队列状态都是真实实现：批次起止要经过它们。

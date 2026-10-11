@@ -1,4 +1,4 @@
-// OctoShrink - Tauri command handlers (replaces Electron IPC)
+// Sizqo - Tauri command handlers (replaces Electron IPC)
 
 use std::collections::HashSet;
 use std::fs;
@@ -174,6 +174,13 @@ impl CompressionScheduler {
     #[cfg(test)]
     pub fn active(&self) -> usize {
         self.active.load(Ordering::Acquire)
+    }
+
+    pub fn try_begin_batch(&self) -> bool {
+        if self.active_batch.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_err() { return false; }
+        self.paused.store(false, Ordering::Release);
+        self.stopping.store(false, Ordering::Release);
+        true
     }
 
     pub fn begin_batch(&self) {
@@ -360,7 +367,7 @@ pub struct CompressionSessionResult {
     deferred: usize,
     /// 被用户明确取消（移出队列）的文件数。
     cancelled: usize,
-    results: Vec<CompressResult>,
+    pub results: Vec<CompressResult>,
 }
 
 /// 批次阶段变化的载荷。
@@ -375,7 +382,7 @@ struct CompressionStatePayload {
 }
 
 /// 阶段变化的唯一播报口：每次状态真的变了都走这里，前端不再猜。
-fn emit_compression_state(app: &AppHandle, scheduler: &CompressionScheduler) {
+pub(crate) fn emit_compression_state(app: &AppHandle, scheduler: &CompressionScheduler) {
     let _ = app.emit(
         "compression-state-change",
         CompressionStatePayload {
@@ -789,6 +796,13 @@ fn take_cancelled(cancel_queue: &Mutex<HashSet<String>>, file_path: &str) -> boo
 /// 被「停止」挡在闸门外的文件发 `deferred` 事件后就地结束，**不进 results**：
 /// 它们没执行过，队列里仍然是 pending，下一轮自然带上。
 async fn compress_batch(
+    app: &AppHandle, state: &AppState, session_id: String, queue_revision: u64,
+    file_paths: Vec<String>, options: CompressOptions, use_smart: bool,
+) -> CompressionSessionResult {
+    compress_batch_with_session(app, state, session_id, queue_revision, file_paths, options, use_smart, true).await
+}
+
+pub(crate) async fn compress_batch_with_session(
     app: &AppHandle,
     state: &AppState,
     session_id: String,
@@ -796,6 +810,7 @@ async fn compress_batch(
     file_paths: Vec<String>,
     options: CompressOptions,
     use_smart: bool,
+    manage_session: bool,
 ) -> CompressionSessionResult {
     // Keep cancellations that arrive between the frontend's start request and
     // this command's first poll. The queue is cleared after all workers exit,
@@ -807,7 +822,7 @@ async fn compress_batch(
     // 否则重启后历史记录指向的位置再也读不到。
     state.access.remember_all(&all_files);
     let settings = state.settings_store.load();
-    state.compression.begin_batch();
+    if manage_session { state.compression.begin_batch(); }
     // 每批开始按当前设置重算并发度：设置命令走的是同一个调度器，这里只是兜底，
     // 保证换过机器 / 手改过 settings.json 也不会拿到一个能卡死的上限。
     state
@@ -1011,10 +1026,12 @@ async fn compress_batch(
         }
     }
 
-    state.cancel_queue.lock().unwrap().clear();
+    if manage_session { state.cancel_queue.lock().unwrap().clear(); }
     // 批次结束必须清暂停与停止，否则下一批继承上一批的状态。
-    state.compression.end_batch();
-    emit_compression_state(app, &state.compression);
+    if manage_session {
+        state.compression.end_batch();
+        emit_compression_state(app, &state.compression);
+    }
     let final_results = results_arc.lock().await.clone();
     let completed = final_results.iter().filter(|r| r.success).count();
     let failed = final_results.len() - completed;
@@ -1058,10 +1075,10 @@ pub async fn select_files(
     app.dialog()
         .file()
         .add_filter(
-            "Images",
+            "Images and videos",
             &[
                 "png", "jpg", "jpeg", "gif", "webp", "bmp", "avif", "jxl", "heic", "heif",
-                "tif", "tiff",
+                "tif", "tiff", "mp4", "mov", "mkv", "webm", "m4v", "avi", "ts", "mts", "m2ts",
             ],
         )
         .pick_files(move |files| {
@@ -1145,7 +1162,7 @@ pub async fn compress_smart(
 
 /// Keep directory scopes alive through encoding, staging, history commit and
 /// rollback. Single-file grants do not cover atomic sibling writes in a sandbox.
-fn prepare_compression_access(
+pub(crate) fn prepare_compression_access(
     _app: &AppHandle,
     _state: &AppState,
     _file_paths: &[String],
@@ -1195,7 +1212,7 @@ pub async fn compress_single(
 
     // Write compressed output to a persistent temp file for display
     if engine_result.success {
-        let dir = std::env::temp_dir().join("octoshrink-display");
+        let dir = std::env::temp_dir().join("sizqo-display");
         let _ = fs::create_dir_all(&dir);
         let ts = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -1209,11 +1226,11 @@ pub async fn compress_single(
     Ok(result)
 }
 
-/// 清理临时目录：`octoshrink-display`（单图重压缩对比文件）、`octoshrink-work`
+/// 清理临时目录：`sizqo-display`（单图重压缩对比文件）、`sizqo-work`
 /// （压缩中间产物）。原图备份在 AppData 下的 history/backups，按保留档位决定去留，
 /// 这里绝不能再删；旧版本遗留在 TMP 的备份目录没有任何历史引用它，继续回收。
 pub fn cleanup_temp_dirs() {
-    for name in ["octoshrink-display", "octoshrink-work", "octoshrink-backups"] {
+    for name in ["sizqo-display", "sizqo-work", "sizqo-backups"] {
         let _ = fs::remove_dir_all(std::env::temp_dir().join(name));
     }
 }

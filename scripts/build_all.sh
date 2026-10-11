@@ -1,25 +1,25 @@
 #!/bin/bash
 # scripts/build_all.sh — 同时构建两条 Tauri 产物线和 Swift 原生版
 #
-# 1. Direct 版 (default=cli-backends) → OctoShrink_direct.app
-# 2. App Store 版 (appstore=inproc-backends) → OctoShrink.app
-# 3. Swift 原生版 → swift/.build/OctoShrink_swift.app
+# 1. Direct 版 (default=cli-backends) → Sizqo_direct.app
+# 2. App Store 版 (appstore=inproc-backends) → Sizqo.app
+# 3. Swift 原生版 → swift/.build/Sizqo_swift.app
 #
 # 用法：
 #   bash scripts/build_all.sh            # 编译三版 + 复制资源（不签名）
 #   SIGN=1 bash scripts/build_all.sh     # 编译三版 + 签名 Tauri 两版
 #
 # 产物路径：
-#   Direct    : target/release/bundle/macos/OctoShrink_direct.app
-#   App Store : target/release/bundle/macos/OctoShrink.app
-#   Swift     : swift/.build/OctoShrink_swift.app
+#   Direct    : target/release/bundle/macos/Sizqo_direct.app
+#   App Store : target/release/bundle/macos/Sizqo.app
+#   Swift     : swift/.build/Sizqo_swift.app
 
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TAURI_DIR="$PROJECT_DIR/src-tauri"
 BUNDLE_DIR="$TAURI_DIR/target/release/bundle/macos"
-APP_NAME="OctoShrink"
+APP_NAME="Sizqo"
 
 # 压缩参数和编码器行为必须与 Swift 原生线同步；失败时不要生成看似正常的三版产物。
 node "$PROJECT_DIR/tests/compression-parity.cjs"
@@ -31,6 +31,8 @@ fail() { echo "✗ $*" >&2; exit 1; }
 # ========== 1. Direct 版（先建，避免被 App Store 版覆盖）==========
 log "构建 Direct 版（default=cli-backends）"
 cd "$TAURI_DIR"
+bash "$PROJECT_DIR/scripts/video_collect_ffmpeg.sh" "$TAURI_DIR/resources/video" \
+  || fail "Direct FFmpeg 视频资源校验或构建失败"
 cargo tauri build --bundles app || fail "Direct 构建失败"
 DIRECT_APP="$BUNDLE_DIR/${APP_NAME}.app"
 [ -d "$DIRECT_APP" ] || fail "Direct 产物不存在：$DIRECT_APP"
@@ -47,6 +49,9 @@ if [ -d "$TAURI_DIR/resources/lib" ]; then
   cp "$TAURI_DIR/resources/lib/"*.dylib "$RES_DIR/lib/" 2>/dev/null || true
   ok "$(ls "$RES_DIR/lib" 2>/dev/null | wc -l | tr -d ' ') 个动态库"
 fi
+cp -R "$TAURI_DIR/resources/video" "$RES_DIR/video" \
+  || fail "复制 Direct FFmpeg 视频资源失败"
+ok "FFmpeg/ffprobe 与依赖已复制到 Direct .app"
 
 # 签名 Direct 版（可选）
 if [ "${SIGN:-0}" = "1" ]; then
@@ -58,6 +63,8 @@ if [ "${SIGN:-0}" = "1" ]; then
     CS=(--force --options runtime --entitlements "$ENT" --sign "$SIGN_IDENTITY")
     for lib in "$RES_DIR/lib/"*.dylib; do [ -f "$lib" ] && codesign "${CS[@]}" "$lib" 2>/dev/null || true; done
     for bin in "$RES_DIR/bin/"*; do [ -f "$bin" ] && codesign "${CS[@]}" "$bin" 2>/dev/null || true; done
+    for lib in "$RES_DIR/video/lib/"*.dylib; do [ -f "$lib" ] && codesign "${CS[@]}" "$lib" 2>/dev/null || true; done
+    for bin in "$RES_DIR/video/bin/"*; do [ -f "$bin" ] && codesign "${CS[@]}" "$bin" 2>/dev/null || true; done
     codesign "${CS[@]}" "$DIRECT_APP" 2>/dev/null || codesign "${CS[@]}" "$DIRECT_APP"
     ok "Direct 版已签名"
   else
@@ -89,19 +96,19 @@ ok "前端文件已复制"
 # 打包 CLI 在这条线上必然失败。历史上这里复制过 pngquant/oxipng/gifsicle 以求
 # "与 Direct 对齐"，结果是死代码 + bundle 里多出第三方可执行文件（审核风险）。
 # 见 AGENTS.md「App Store bundle 自检」。
-rm -rf "$APPSTORE_APP/Contents/Resources/bin" "$APPSTORE_APP/Contents/Resources/lib"
+rm -rf "$APPSTORE_APP/Contents/Resources/bin" "$APPSTORE_APP/Contents/Resources/lib" "$APPSTORE_APP/Contents/Resources/video"
 
 # bundle 自检：App Store 包里除主程序外不许有第三方 Mach-O / dylib，
 # 引擎源码里不许有 spawn CLI 的写法（注释里提到这些词不算）。
 check_appstore_bundle() {
   local app="$1" foreign binaries spawns
-  foreign=$(find "$app/Contents" \( -name '*.dylib' -o -path '*/Resources/bin/*' \) -type f 2>/dev/null || true)
+  foreign=$(find "$app/Contents" \( -name '*.dylib' -o -path '*/Resources/bin/*' -o -path '*/Resources/video/*' \) -type f 2>/dev/null || true)
   if [ -n "$foreign" ]; then
     echo "$foreign" >&2
     fail "App Store 包里混进了外部可执行文件/dylib（沙盒线必须全进程内）"
   fi
   # 守的不变量是"MacOS 下只有唯一一个主程序"，与它叫什么名字无关：Tauri 只把 .app
-  # 目录建成 productName（OctoShrink），可执行文件仍是 Cargo 包名（octoshrink），
+  # 目录建成 productName（Sizqo），可执行文件仍按 Cargo 包名（sizqo）生成，
   # 按 $APP_NAME 比对会把主程序自己判成"额外可执行文件"，自检就永久失败了。
   binaries=$(find "$app/Contents/MacOS" -mindepth 1 2>/dev/null | wc -l | tr -d ' ')
   if [ "$binaries" != "1" ]; then
@@ -133,7 +140,7 @@ fi
 # ========== 3. 原生 Swift 版 ==========
 log "构建原生 Swift 版"
 bash "$PROJECT_DIR/scripts/build_swift.sh" || fail "Swift 版构建失败"
-SWIFT_APP="$PROJECT_DIR/swift/.build/OctoShrink_swift.app"
+SWIFT_APP="$PROJECT_DIR/swift/.build/Sizqo_swift.app"
 
 # ========== 4. 报告 ==========
 echo ""

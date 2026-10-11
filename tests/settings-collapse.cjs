@@ -28,13 +28,23 @@ assert.match(panelTag[0], /style="display:none;"/,
 assert.ok(html.includes('class="settings-header" onclick="toggleSettings()"'));
 assert.ok(html.indexOf('id="settingsSummary"') > panelTag.index, '摘要在面板标题里');
 
-// ── ② 只有点击能改：全文只有 toggleSettings 一处写这个 class ──────────
+// ── ② 只有点击能改：全文只有两块面板各写一次这个 class ──────────────
+// 图片设置（toggleSettings）与视频设置（toggleVideoSettings）是平行的两块
+// 折叠面板，各自只有标题行点击这一处写 collapsed；除此之外不许有第三处写。
 const writes = source.match(/classList\.(?:add|remove|toggle)\(\s*'collapsed'/g) || [];
-assert.deepEqual(writes, ["classList.toggle('collapsed'"],
-  `collapsed 只许由 toggleSettings 的 toggle 写一次，实际：${writes.join(', ')}`);
+assert.deepEqual(writes, ["classList.toggle('collapsed'", "classList.toggle('collapsed'"],
+  `collapsed 只许由 toggleSettings / toggleVideoSettings 各 toggle 一次，实际：${writes.join(', ')}`);
 assert.doesNotMatch(source, /settingsPanel'\)\.classList\.remove\('collapsed'\)/,
   '不许有任何代码路径自动展开设置面板');
 assert.equal((html.match(/id="settingsPanel"/g) || []).length, 1, '面板只有一个');
+assert.equal((html.match(/id="videoSettingsPanel"/g) || []).length, 1, '视频面板只有一个');
+const videoPanelTag = html.match(/<div class="settings-panel video-settings-panel[^>]*id="videoSettingsPanel"[^>]*>/)
+  || html.match(/<div[^>]*id="videoSettingsPanel"[^>]*>/);
+assert.ok(videoPanelTag, '找不到视频设置面板 #videoSettingsPanel');
+assert.ok((videoPanelTag[0].match(/class="([^"]*)"/) || [])[1].split(/\s+/).includes('collapsed'),
+  '#videoSettingsPanel 也必须带着 collapsed 起手');
+assert.ok(html.includes('class="settings-header" onclick="toggleVideoSettings()"'),
+  '视频面板标题行也要挂点击切换');
 
 // 设置页里的静态卡片（语言 / 外观 / 历史记录与原图 / 性能 / 更新 / 关于），
 // 它们没有折叠这回事，别被顺手加上 collapsed。

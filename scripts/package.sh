@@ -1,5 +1,5 @@
 #!/bin/bash
-# OctoShrink 打包脚本
+# Sizqo 打包脚本
 # 在 cargo tauri build 之后执行，将 CLI 工具和动态库复制到 .app bundle
 # 工具保持原始状态（不修改路径、不重新签名），通过 DYLD_FALLBACK_LIBRARY_PATH 加载库
 
@@ -7,7 +7,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-APP_BUNDLE="$PROJECT_DIR/src-tauri/target/release/bundle/macos/OctoShrink.app"
+APP_BUNDLE="$PROJECT_DIR/src-tauri/target/release/bundle/macos/Sizqo.app"
 
 if [ ! -d "$APP_BUNDLE" ]; then
   echo "❌ .app bundle 不存在，请先运行 cargo tauri build"
@@ -47,11 +47,35 @@ for lib in "$PROJECT_DIR/src-tauri/resources/lib/"*.dylib; do
 done
 echo "    ✓ $lib_count 个库文件"
 
+# 复制视频引擎资源（ffmpeg / ffprobe 及其动态库）
+echo "  复制视频引擎资源..."
+VIDEO_BIN="$RESOURCES_DIR/video/bin"
+VIDEO_LIB="$RESOURCES_DIR/video/lib"
+mkdir -p "$VIDEO_BIN" "$VIDEO_LIB"
+video_count=0
+for tool in ffmpeg ffprobe; do
+  src="$PROJECT_DIR/src-tauri/resources/video/bin/$tool"
+  if [ -f "$src" ]; then
+    cp "$src" "$VIDEO_BIN/$tool"
+    chmod 755 "$VIDEO_BIN/$tool"
+    echo "    ✓ $tool"
+    video_count=$((video_count + 1))
+  fi
+done
+for lib in "$PROJECT_DIR/src-tauri/resources/video/lib/"*.dylib; do
+  if [ -f "$lib" ]; then
+    lib_name=$(basename "$lib")
+    cp "$lib" "$VIDEO_LIB/$lib_name"
+    chmod 644 "$VIDEO_LIB/$lib_name"
+  fi
+done
+
 # 显示最终大小
 echo ""
 echo "✅ 打包完成！"
 echo "   .app 大小: $(du -sh "$APP_BUNDLE" | awk '{print $1}')"
 echo "   内置工具: $(ls "$BIN_DIR" | wc -l | tr -d ' ') 个"
 echo "   内置库: $lib_count 个"
+echo "   视频引擎: $video_count 个工具 + $(ls "$VIDEO_LIB" 2>/dev/null | wc -l | tr -d ' ') 个库"
 echo ""
 echo "   工具通过 DYLD_FALLBACK_LIBRARY_PATH 加载内置库，无需用户安装任何依赖"

@@ -1,4 +1,6 @@
 mod app_settings;
+pub mod video;
+mod video_commands;
 mod commands;
 pub mod engine;
 mod history;
@@ -60,6 +62,7 @@ fn updater_for_route(
 ) -> Result<tauri_plugin_updater::Updater, String> {
     use tauri_plugin_updater::UpdaterExt;
 
+    if option_env!("SIZQO_UPDATER_CONFIGURED") != Some("1") { return Err("Sizqo updates are disabled until an independent feed and signing key are configured".into()); }
     let mut builder = app
         .updater_builder()
         .timeout(UPDATE_DOWNLOAD_TIMEOUT)
@@ -166,14 +169,14 @@ fn startup_theme_path() -> PathBuf {
     use objc2_foundation::NSHomeDirectory;
 
     PathBuf::from(NSHomeDirectory().to_string())
-        .join("Library/Application Support/OctoShrink")
+        .join("Library/Application Support/Sizqo")
         .join(STARTUP_THEME_FILE)
 }
 
 #[cfg(not(target_os = "macos"))]
 fn startup_theme_path() -> PathBuf {
     std::env::temp_dir()
-        .join("OctoShrink")
+        .join("Sizqo")
         .join(STARTUP_THEME_FILE)
 }
 
@@ -281,6 +284,7 @@ struct DirectUpdateInfo {
 ))]
 #[tauri::command]
 async fn check_for_update(app: tauri::AppHandle) -> Result<Option<DirectUpdateInfo>, String> {
+    if option_env!("SIZQO_UPDATER_CONFIGURED") != Some("1") { return Ok(None); }
     let Some(checked_update) = check_update_with_proxy_fallback(&app).await? else {
         return Ok(None);
     };
@@ -369,6 +373,7 @@ fn reset_update_progress(app: &tauri::AppHandle, total: &AtomicU64, downloaded: 
 ))]
 #[tauri::command]
 async fn install_update(app: tauri::AppHandle) -> Result<bool, String> {
+    if option_env!("SIZQO_UPDATER_CONFIGURED") != Some("1") { return Err("Sizqo automatic updates are not configured".into()); }
     // 单飞：同一时刻只允许一个下载安装任务。页面重载（「还原默认设置」走
     // location.reload）不会中断后端下载，重载后再点「立即更新」必须被这里
     // 拒绝——前端会顺着仍在播报的 update-progress 事件把进度条接管回来，
@@ -526,6 +531,17 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            video_commands::probe_media,
+            video_commands::get_video_capabilities,
+            video_commands::validate_video_options,
+            video_commands::get_video_presets,
+            video_commands::save_video_preset,
+            video_commands::start_video_session,
+            video_commands::start_media_session,
+            video_commands::cancel_video_task,
+            video_commands::preview_video_frame,
+            video_commands::compare_video_frames,
+            video_commands::open_media_file,
             commands::select_files,
             commands::select_folder,
             commands::select_output_dir,
@@ -566,6 +582,7 @@ pub fn run() {
         .setup(move |app| {
             // 历史与原图备份放 AppData：绝不放临时目录。清理只有一个时机 —— 正常退出，
             // 按当前保留档位把该走的记录和备份一起走掉。
+            app.manage(video_commands::VideoRuntime::default());
             let data_root = app.path().app_data_dir().map_err(|error| error.to_string())?;
             let history_root = data_root.join(history::HISTORY_DIR);
             let history_store = std::sync::Arc::new(
@@ -726,7 +743,7 @@ pub fn run() {
             Ok(())
         })
         .build(context)
-        .expect("error while building OctoShrink")
+        .expect("error while building Sizqo")
         .run(|app, event| {
             // 应用退出（关主窗 / Cmd+Q / 重启）时清理临时目录，避免长期累积
             if matches!(event, tauri::RunEvent::Exit) {

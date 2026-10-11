@@ -38,13 +38,13 @@ assert.match(html, /id="languagePreference" class="settings-select"/);
 assert.match(html, /<option value="auto">自动（跟随系统）<\/option>/);
 assert.match(html, /<option value="zh">简体中文<\/option>/);
 assert.match(html, /<option value="en">英语<\/option>/);
-assert.match(html, /OctoShrinkI18n\.applyToDocument\(document\)/);
-assert.match(html, /<h2 data-i18n-zh="拖拽图片或文件夹到此处">Drop images or folders here<\/h2>/);
-assert.match(html, /<p data-i18n-zh="支持 PNG、JPG、GIF、WebP、BMP 格式 · 自动批量压缩">Supports PNG, JPG, GIF, WebP, and BMP · Automatic batch compression<\/p>/);
-assert.match(html, /<span data-i18n-zh="选择文件">Choose Files<\/span>/);
+assert.match(html, /SizqoI18n\.applyToDocument\(document\)/);
+assert.match(html, /<h2 data-i18n-zh="拖拽图片、视频或文件夹到此处">Drop images, videos, or folders here<\/h2>/);
+assert.match(html, /<p data-i18n-zh="自动识别媒体类型 · 文件夹递归扫描 · 大文件分析不阻塞界面">Media types detected automatically · folders scanned recursively<\/p>/);
+assert.match(html, /<span data-i18n-zh="选择媒体文件">Choose Media<\/span>/);
 assert.match(html, /<span data-i18n-zh="选择文件夹">Choose Folder<\/span>/);
 assert.match(compareHtml, /<script src="i18n\.js"><\/script>/, 'the comparison window uses the same language preference');
-assert.match(compareHtml, /OctoShrinkI18n\.applyToDocument\(document\)/);
+assert.match(compareHtml, /SizqoI18n\.applyToDocument\(document\)/);
 assert.match(appJs, /localizeUiText\('压缩中…'\)/, 'runtime UI messages go through the translation catalog');
 
 assert.equal(normalizeLocale('C.UTF-8'), '');
@@ -74,7 +74,7 @@ function settingsSummary(language) {
     settingsSummary: summary,
   };
   const context = vm.createContext({
-    window: { OctoShrinkI18n: { translateText: value => translateText(value, language) } },
+    window: { SizqoI18n: { translateText: value => translateText(value, language) } },
     document: { getElementById: id => controls[id] || null, querySelector: () => ({ value: 'replace' }) },
     processingMode: 'advanced',
     getOutputSuffix: () => '_compressed',
@@ -82,7 +82,7 @@ function settingsSummary(language) {
   const start = appJs.indexOf('function updateSettingsSummary()');
   const end = appJs.indexOf('function resetSettings()', start);
   assert.ok(start >= 0 && end > start, 'the settings summary function remains available');
-  vm.runInContext(`function localizeUiText(value) { return window.OctoShrinkI18n.translateText(value); }\n${appJs.slice(start, end)}`, context);
+  vm.runInContext(`function localizeUiText(value) { return window.SizqoI18n.translateText(value); }\n${appJs.slice(start, end)}`, context);
   context.updateSettingsSummary();
   return summary.textContent;
 }
@@ -96,7 +96,7 @@ function makeDocument(language, initialText, chineseText) {
   const body = { querySelectorAll: selector => selector === '[data-i18n-zh]' ? [translated] : [] };
   const doc = {
     body,
-    title: 'OctoShrink',
+    title: 'Sizqo',
     documentElement: { lang: '', dataset: {} },
     defaultView: null,
     createTreeWalker: () => {

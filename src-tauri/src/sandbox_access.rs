@@ -1,4 +1,4 @@
-// OctoShrink - 跨启动的文件访问授权。
+// Sizqo - 跨启动的文件访问授权。
 //
 // Direct 版没有沙盒限制，这里是直通实现。App Store 沙盒版只对用户"刚刚选中"的
 // 路径持有临时授权，关闭 App 就失效，所以必须把路径存成 security-scoped
@@ -57,7 +57,7 @@ pub fn acquire_writable_directory(
 ) -> Option<AccessGuard> {
     acquire_writable_directory_with_probe(access, directory, reauth, &mut || {
         tempfile::Builder::new()
-            .prefix(".octoshrink-access-")
+            .prefix(".sizqo-access-")
             .tempfile_in(directory)
             .is_ok()
     })

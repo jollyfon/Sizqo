@@ -8,11 +8,11 @@ const path = require('node:path');
 const root = path.join(__dirname, '..');
 const read = relative => fs.readFileSync(path.join(root, relative), 'utf8');
 const html = read('frontend/index.html');
-const swiftOptions = read('swift/Sources/OctoShrinkSwift/Models/CompressOptions.swift');
-const swiftUI = read('swift/Sources/OctoShrinkSwift/Views/ContentView.swift');
-const swiftState = read('swift/Sources/OctoShrinkSwift/ViewModels/AppState.swift');
-const swiftEngine = read('swift/Sources/OctoShrinkSwift/Engine/CompressionEngine.swift');
-const swiftRunner = read('swift/Sources/OctoShrinkSwift/Engine/CLIRunner.swift');
+const swiftOptions = read('swift/Sources/SizqoSwift/Models/CompressOptions.swift');
+const swiftUI = read('swift/Sources/SizqoSwift/Views/ContentView.swift');
+const swiftState = read('swift/Sources/SizqoSwift/ViewModels/AppState.swift');
+const swiftEngine = read('swift/Sources/SizqoSwift/Engine/CompressionEngine.swift');
+const swiftRunner = read('swift/Sources/SizqoSwift/Engine/CLIRunner.swift');
 const directEngine = read('src-tauri/src/engine.rs');
 const appStoreEngine = read('src-tauri/src/engine_inproc.rs');
 const swiftBuild = read('scripts/build_swift.sh');
@@ -26,7 +26,7 @@ assert.match(swiftOptions, /var smartMode: Bool = true/,
   'Swift must default to the same enabled smart mode as Direct and App Store');
 assert.match(swiftUI, /Toggle\("自动选择最佳算法和参数", isOn: \$appState\.options\.smartMode\)/);
 assert.match(swiftState, /setting-smartMode-direct-default-v1/);
-assert.match(swiftState, /d\.set\(true, forKey: "setting-smartMode"\)/,
+assert.match(swiftState, /d\.set\(true, forKey: "sizqo\.setting-smartMode"\)/,
   'existing Swift installs must migrate off the old, weaker smart-mode default');
 assert.match(html, /<option value="auto">自动选择/);
 assert.match(swiftOptions, /var backend: CompressionBackend = \.auto/);

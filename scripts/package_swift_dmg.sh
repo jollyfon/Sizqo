@@ -9,14 +9,14 @@
 #
 # 环境变量：
 #   SIGNING_IDENTITY   签名身份（默认自动检测 Developer ID Application）
-#   NOTARY_PROFILE     公证凭据 profile（默认 octoshrink-notary）
+#   NOTARY_PROFILE     公证凭据 profile（默认 sizqo-notary）
 
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-APP_NAME="OctoShrink"
+APP_NAME="Sizqo"
 APP="$PROJECT_DIR/swift/.build/${APP_NAME}_swift.app"
-BUNDLE_ID="com.misswell.octoshrink.swift"
+BUNDLE_ID="com.misswell.sizqo.swift"
 ENTITLEMENTS="$PROJECT_DIR/swift/entitlements.plist"
 DEFAULT_TEAM_ID="U8U443D7ZL"
 VERSION="$(plutil -extract CFBundleShortVersionString raw "$APP/Contents/Info.plist" 2>/dev/null || echo "0.0.0")"
@@ -75,7 +75,7 @@ fi
 
 # ---------- 3. 制作 DMG ----------
 log "制作 DMG"
-STAGING="$(mktemp -d -t octoshrink_swift_dmg)"
+STAGING="$(mktemp -d -t sizqo_swift_dmg)"
 trap 'rm -rf "$STAGING"' EXIT
 cp -R "$APP" "$STAGING/"
 ln -s /Applications "$STAGING/Applications"
@@ -88,7 +88,7 @@ ok "$DMG_NAME ($(du -h "$DMG" | awk '{print $1}'))"
 
 # ---------- 4. 公证（可选）----------
 if [ "${NOTARIZE:-0}" = "1" ]; then
-  NOTARY_PROFILE="${NOTARY_PROFILE:-octoshrink-notary}"
+  NOTARY_PROFILE="${NOTARY_PROFILE:-sizqo-notary}"
   if ! xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1; then
     echo "    ⚠ 钥匙串未找到公证凭据 profile: $NOTARY_PROFILE，跳过公证" >&2
     echo "      本地 DMG 已生成：$DMG"

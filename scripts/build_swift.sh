@@ -1,7 +1,7 @@
 #!/bin/bash
-# scripts/build_swift.sh — 构建原生 Swift 版 OctoShrink
+# scripts/build_swift.sh — 构建 Sizqo 原生 Swift 版
 #
-# 产物：OctoShrink_swift.app（第三条产物线，不替换 Direct / App Store）
+# 产物：Sizqo_swift.app（原生 Swift 实现）
 #
 # 用法：
 #   bash scripts/build_swift.sh            # 编译 + 打包（不签名）
@@ -11,9 +11,9 @@ set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SWIFT_DIR="$PROJECT_DIR/swift"
-SRC_DIR="$SWIFT_DIR/Sources/OctoShrinkSwift"
+SRC_DIR="$SWIFT_DIR/Sources/SizqoSwift"
 BUILD_DIR="$SWIFT_DIR/.build"
-APP_NAME="OctoShrink"
+APP_NAME="Sizqo"
 OUT_APP="$BUILD_DIR/${APP_NAME}_swift.app"
 TAURI_RES="$PROJECT_DIR/src-tauri/resources"
 ENCODER_TOOLS=(pngquant oxipng cjpeg cwebp avifenc gifsicle)
@@ -42,7 +42,7 @@ xcrun swiftc \
   -O \
   -parse-as-library \
   -target arm64-apple-macos13.0 \
-  -module-name OctoShrinkSwift \
+  -module-name SizqoSwift \
   -o "$BUILD_DIR/${APP_NAME}" \
   @"$BUILD_DIR/sources.txt" \
   || fail "Swift 编译失败"

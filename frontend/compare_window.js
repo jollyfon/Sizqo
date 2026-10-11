@@ -1,4 +1,4 @@
-// OctoShrink - 独立对比窗口（compare.html）
+// Sizqo - 独立对比窗口（compare.html）
 // 由主窗口经 open_compare_window 创建；首屏载荷经 take_compare_window_payload 取回，
 // 之后主窗口通过 compare-open / compare-results-changed 事件推送更新。
 // 重新压缩 / 恢复原图在本窗口执行，结果经事件回传主窗口同步。
@@ -8,8 +8,8 @@ const { listen, emit } = window.__TAURI__.event;
 const { getCurrentWindow } = window.__TAURI__.window;
 
 function localizeUiText(value) {
-  if (typeof window === 'undefined' || !window.OctoShrinkI18n) return value;
-  return window.OctoShrinkI18n.translateText(value);
+  if (typeof window === 'undefined' || !window.SizqoI18n) return value;
+  return window.SizqoI18n.translateText(value);
 }
 
 // ─── DOM ────────────────────────────────────────────────────────
@@ -53,7 +53,7 @@ const THEMES = ['auto', 'light', 'dark'];
 function applyCompareTheme() {
   let mode = 'auto';
   try {
-    const stored = localStorage.getItem('octoshrink-theme');
+    const stored = localStorage.getItem('sizqo-theme');
     if (THEMES.includes(stored)) mode = stored;
   } catch (_) {}
   const resolved = mode === 'auto'

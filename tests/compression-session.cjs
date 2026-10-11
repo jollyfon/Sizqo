@@ -11,6 +11,7 @@ const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const {
   source, slice, installStateMachine, installQueueCore, installSessionModel, installQueueRowPainter,
+  installMediaWorkspaceStubs,
 } = require('./app-slices.cjs');
 
 const summary = { textContent: '' };
@@ -40,7 +41,7 @@ const context = vm.createContext({
   // app.js 那边监听的是事件对象，事件载荷在 event.payload 里。
   listen: async (_, handler) => { progress = payload => handler({ payload }); return () => {}; },
   invoke: async (command, args) => {
-    if (command === 'expand_image_files') return args.filePaths;
+    if (command === 'probe_media') return args.paths.map(path => ({ path, mediaKind: 'image', size: 2048 }));
     if (command === 'get_file_sizes') return args.filePaths.map(() => 2048);
     return new Promise(resolve => runs.push({
       command, paths: args.filePaths, sessionId: args.sessionId, queueRevision: args.queueRevision, resolve,
@@ -54,6 +55,7 @@ const context = vm.createContext({
   renderQueueResultActions() {}, renderRestoredActions() {},
 });
 
+installMediaWorkspaceStubs(context);
 vm.runInContext(slice('function uniqueFilePaths(', 'async function renderFileQueue('), context);
 vm.runInContext(slice('function processingActionText(', 'function setProcessingMode('), context);
 installQueueCore(context);

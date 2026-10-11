@@ -187,7 +187,7 @@ const winArm = {
 
   // ── 文案红线：方案禁止写成"绑定几个性能核" ──
   const html = fs.readFileSync('frontend/index.html', 'utf8');
-  assert.match(html, /限制 OctoShrink 同时使用的 CPU 并行能力/);
+  assert.match(html, /限制 Sizqo 同时使用的 CPU 并行能力/);
   assert.match(html, /较低的数值会降低压缩速度，但可为其他应用保留更多性能/);
   assert.match(html, /系统会自动在性能核与能效核之间调度任务/);
   assert.doesNotMatch(html, /使用 \d+ 个性能核/, '不能承诺绑定具体核心');

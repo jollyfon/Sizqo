@@ -44,7 +44,18 @@
     "allow-set-original-retention-days",
     "allow-set-cpu-thread-limit",
     "allow-get-cpu-resource-settings",
-    "allow-get-cpu-info"
+    "allow-get-cpu-info",
+    "allow-probe-media",
+    "allow-get-video-capabilities",
+    "allow-validate-video-options",
+    "allow-get-video-presets",
+    "allow-save-video-preset",
+    "allow-start-video-session",
+    "allow-start-media-session",
+    "allow-cancel-video-task",
+    "allow-preview-video-frame",
+    "allow-compare-video-frames",
+    "allow-open-media-file"
   ],
   "remote": {
     "urls": [

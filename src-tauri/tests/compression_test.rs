@@ -1,7 +1,6 @@
 // Integration test for the compression engine
-use octoshrink_lib::engine;
+use sizqo_lib::engine;
 use std::fs;
-use std::path::PathBuf;
 
 fn make_test_image(path: &str, format: &str) {
     let img = image::RgbImage::from_fn(400, 300, |x, y| {

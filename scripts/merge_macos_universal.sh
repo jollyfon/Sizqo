@@ -27,7 +27,7 @@ while IFS= read -r -d '' arm_file; do
           ;;
       esac
     elif file "${intel_file}" | grep -q 'Mach-O'; then
-      merged_file="$(mktemp /tmp/octoshrink-universal.XXXXXX)"
+      merged_file="$(mktemp /tmp/sizqo-universal.XXXXXX)"
       lipo -create "${arm_file}" "${intel_file}" -output "${merged_file}"
       chmod "$(stat -f '%Lp' "${output_file}")" "${merged_file}"
       mv "${merged_file}" "${output_file}"

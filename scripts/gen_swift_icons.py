@@ -21,7 +21,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 SOURCES = [REPO / "frontend" / "index.html", REPO / "frontend" / "compare.html"]
-OUT = REPO / "swift" / "Sources" / "OctoShrinkSwift" / "Views" / "OctoIconLibrary.swift"
+OUT = REPO / "swift" / "Sources" / "SizqoSwift" / "Views" / "SizqoIconLibrary.swift"
 
 
 def fmt(value: float) -> str:
@@ -277,20 +277,20 @@ def main() -> int:
         "// (24-grid, 1.8 stroke, round caps/joins; fill = solid dot).\n"
         "import SwiftUI\n"
         "\n"
-        "enum OctoPathOp {\n"
+        "enum SizqoPathOp {\n"
         "    case move(CGFloat, CGFloat)\n"
         "    case line(CGFloat, CGFloat)\n"
         "    case curve(CGFloat, CGFloat, CGFloat, CGFloat, CGFloat, CGFloat)\n"
         "    case close\n"
         "}\n"
         "\n"
-        "enum OctoIconElement {\n"
-        "    case stroke([OctoPathOp])\n"
-        "    case fill([OctoPathOp])\n"
+        "enum SizqoIconElement {\n"
+        "    case stroke([SizqoPathOp])\n"
+        "    case fill([SizqoPathOp])\n"
         "}\n"
         "\n"
-        "enum OctoIconLibrary {\n"
-        "    static let icons: [String: [OctoIconElement]] = [\n"
+        "enum SizqoIconLibrary {\n"
+        "    static let icons: [String: [SizqoIconElement]] = [\n"
         + "\n".join(blocks)
         + "\n    ]\n"
         "}\n",

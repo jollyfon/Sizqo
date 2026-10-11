@@ -2,207 +2,209 @@
 
 **[English](README.md) · 简体中文**
 
-# 章小压 · OctoShrink
+# Sizqo
 
-**免费开源、本地运行的图片压缩工具 —— 拖进去，压缩好，还给你。**
+**免费开源、本地运行的图片 / 视频压缩工具 —— 拖进去，压缩好，还给你。**
 
-[![Release](https://img.shields.io/github/v/release/misswell/octo-shrink)](https://github.com/misswell/octo-shrink/releases/latest)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%C2%B7%20Windows%20%C2%B7%20Linux-blue)](https://github.com/misswell/octo-shrink/releases/latest)
+[![Release](https://img.shields.io/github/v/release/misswell/Sizqo)](https://github.com/misswell/Sizqo/releases/latest)
+[![Platform](https://img.shields.io/badge/platform-macOS-blue)](https://github.com/misswell/Sizqo/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Tauri](https://img.shields.io/badge/Tauri-2.x-orange)](https://tauri.app)
-[![Mac App Store](https://img.shields.io/badge/Mac%20App%20Store-%E5%85%8D%E8%B4%B9-0A84FF)](https://apps.apple.com/cn/app/octoshrink-%E5%9B%BE%E7%89%87%E5%8E%8B%E7%BC%A9/id6792604654?mt=12)
 
-![章小压 · OctoShrink](assets/banner.png)
+![Sizqo](assets/banner.png)
 
-**[官网](https://octoshrink.liuguofeng.com/)** · **[下载最新版](https://github.com/misswell/octo-shrink/releases/latest)** · **[Mac App Store](https://apps.apple.com/cn/app/octoshrink-%E5%9B%BE%E7%89%87%E5%8E%8B%E7%BC%A9/id6792604654?mt=12)** · **[问题反馈](https://github.com/misswell/octo-shrink/issues)**
+**[下载最新版](https://github.com/misswell/Sizqo/releases/latest)** · **[问题反馈](https://github.com/misswell/Sizqo/issues)**
 
 </div>
 
 ---
 
-## 为什么是章小压
+Sizqo 把常用的媒体压缩能力装进一个 macOS 桌面应用：**图片和视频都支持，所有压缩都在你的电脑上完成，素材永不上传**，断网也能用。适合日常整理截图、设计稿、公众号配图、网站图片、录屏和相机素材。
 
-在线压缩工具要把图片传到别人的服务器，命令行工具要装依赖、记参数。章小压把常用的图片压缩能力装进一个桌面应用：**所有压缩都在你的电脑上完成，素材永不上传**，断网也能用。适合日常整理截图、设计稿、公众号配图、网站图片和产品素材。
-
-- **图片不上云** —— 本机处理，不注册、不登录、没有上传这一步
+- **素材不上云** —— 本机处理，不注册、不登录、没有上传这一步
 - **开箱即用** —— 压缩引擎随应用内置，无需安装任何命令行工具
-- **批量拖拽** —— 图片或文件夹整批拖入，自动递归子目录
-- **原图保护** —— 覆盖前先备份真原图，任何时候都能一键恢复
-- **免费开源** —— MIT 许可证，无需购买或激活
+- **批量拖拽** —— 图片、视频或文件夹整批拖入，自动递归子目录，按文件内容识别媒体类型
+- **原图保护** —— 覆盖前先备份真原文件，任何时候都能一键恢复
+- **免费开源** —— MIT 协议，无内购、无激活
 
 ## 界面一览
 
-| 亮色模式 | 暗色模式 |
-|---------|---------|
-| ![亮色模式](assets/screenshot-light.png) | ![暗色模式](assets/screenshot-dark.png) |
+| 亮色 | 暗色 |
+|------------|-----------|
+| ![亮色](assets/screenshot-light.png) | ![暗色](assets/screenshot-dark.png) |
 
-压缩完成后，在独立对比窗口中拖动分割线逐像素对比原图与压缩结果，画面几乎看不出差别：
+独立对比窗口，拖动分割线逐像素对比：
 
 ![对比窗口](assets/compare.png)
 
 ## 核心能力
 
-### 压缩
+### 图片
 
-- **两种模式**：「高级压缩」可调质量、压缩力度和输出格式（保持原格式或转 JPEG / PNG / WebP / AVIF）；macOS 另有「系统转换」，与 Finder 转换图像对齐，支持 JPEG / PNG / HEIF 与尺寸档位、元数据保留。
-- **智能压缩**：自动为每张图选择合适的算法与参数；想完全掌控时，也可以手动指定引擎与力度。
-- **批量队列**：拖入文件或文件夹自动递归展开、去重，支持追加导入、按名称 / 大小 / 压缩比 / 状态排序、只看失败。
-- **灵活保存**：覆盖原文件、加自定义后缀（默认 `_compressed`）或输出到指定文件夹，三种方式随选。
-- **压缩统计**：整个队列的原始大小、压缩后、已节省、压缩率一目了然，每行结果单独给出节省比例。
+- **两种模式**：「高级压缩」自定义质量、力度和输出格式（原格式或转 JPEG/PNG/WebP/AVIF）；macOS 上还可用「系统转换」，对齐 Finder 的转换流程。
+- **智能模式**：按每张图自动挑算法和参数，也可以手动指定引擎和力度。
+- **可视化对比**：独立窗口拖动分割线，压缩前后逐像素对比。
 
-### 原图保护
+### 视频（Direct 版）
 
-- **覆盖前先备份**：选择覆盖原文件时，应用先把真正的原图备份到本机，备份失败就放弃覆盖 —— 宁可压缩失败，也不弄丢原图。
-- **一键恢复**：从压缩结果或历史记录随时恢复原图；如果文件在压缩后又被其他应用改过，会先提示确认再覆盖。
-- **压缩历史**：跨启动保留每次记录，每一行都提供此刻真正可用的操作 —— 另存为、对比查看、恢复原图（或删除本次压缩结果）、在访达中显示、复制日志。
-- **备份保留期**：默认「不保留」（关闭应用时清理记录和备份，期间随时可恢复），也可选保留 1 / 3 / 7 / 14 / 30 天。清理只动应用自己的记录与备份，绝不删除你的图片文件。
-- **崩溃安全**：覆盖操作有事务记录，意外退出后下次启动自动补记或回滚；历史文件损坏时会隔离现场、从备份重建恢复入口，并跳过当次清理 —— 原图副本永远优先。
+- **预设**：快速（硬件 H.264/HEVC）、均衡、高质量（x264/x265 CRF）、目标体积（两遍编码）、兼容优先，以及完全自定义的编码参数。
+- **编码器**：支持时优先硬件 VideoToolbox（H.264/HEVC），软件 x264、x265、SVT-AV1（AV1）可选；编码器回退会明确展示。
+- **输出容器**：MP4、MOV、MKV、WebM。音轨、字幕、章节、附件要么保留，要么明确告知被移除，绝不悄悄丢。
+- **诚实的结果**：只有当输出有效、可播放且确实更小时才算“压缩成功”；HDR / 杜比视界、10bit、Alpha、隔行扫描等输入会被拒绝并解释原因，不做静默色调映射。
+- **逐任务进度**：编码速度、预计剩余时间，以及有上限的诊断日志。
+- **同帧对比**：选一个时间点，源视频和输出视频的帧并排对比。
+
+### 原文件保护
+
+- **覆盖前备份**：替换前先把原文件备份到本地；备份存不下就不替换。
+- **一键恢复**：从结果行或历史记录恢复。压缩后如果文件又被其他应用改过，恢复前会先询问。
+- **压缩历史**：记录跨启动保留，并带有媒体类型。每条记录只提供当前真实可用的操作：另存为、对比、恢复原图（或删除压缩结果）、在访达中显示、复制日志。
+- **备份保留期**：默认“不保留”（退出时清理记录与备份），也可以选 1/3/7/14/30 天。清理只碰 Sizqo 自己的历史和备份，绝不碰你的媒体文件。
+- **崩溃安全**：替换操作有预提交日志。意外退出后，下次启动自动完成或回滚被中断的操作；仍可能是唯一原件的备份绝不会被清掉。
 
 ### 队列与任务
 
-- **暂停 / 继续 / 停止**：暂停只等还没开始的文件，正在压缩的照常跑完；「停止」结束这一轮，没轮到的文件仍留在队列，点「继续压缩」从原进度接着处理，进度绝不倒扣。失败项单独「重试」。
-- **CPU 使用上限**：设置中可选自动或限制并行能力（同时处理的文件数 × 单个编码器线程数），为其他应用留出性能。
-- **自动处理**：开启后导入即压缩；调整参数后也可以对单个文件调质量重压一次。
+- **暂停 / 继续 / 停止**：暂停不再启动新文件，正在压缩的跑完；停止结束这一轮，剩余文件留在队列里；继续从原进度接着跑。失败文件可逐个重试。
+- **取消当前视频**：正在编码的视频可以单独取消，不影响队列其他任务。
+- **CPU 上限**：自动调度，或限制并行份数（同时文件数 × 编码线程）给其他应用让路。视频同时只编一个，解码/编码线程数同样计入这份预算。
+- **自动压缩**：导入后自动开始压缩，可在设置里开关。
 
-### 体验细节
+### 界面
 
-- 🌗 亮色 / 暗色 / 自动跟随系统；压缩设置默认收起，不需要时完全不打扰
-- 🔄 macOS GitHub 直发版支持应用内检查更新；Mac App Store 版由商店负责更新
-- 🔒 直发版已签名并公证（Developer ID + Notarization），双击即用
+- 🌗 亮色 / 暗色 / 跟随系统外观；压缩设置默认折叠。
+- 🌐 简体中文和英语，默认跟随系统语言，可在设置里固定。
 
 ## 下载与安装
 
-| 渠道 | 适合谁 | 获取方式 |
-|------|--------|---------|
-| [GitHub Releases](https://github.com/misswell/octo-shrink/releases/latest) | 想要最新功能，以及 Windows / Linux 用户 | 下载安装包，双击安装 |
-| [Mac App Store](https://apps.apple.com/cn/app/octoshrink-%E5%9B%BE%E7%89%87%E5%8E%8B%E7%BC%A9/id6792604654?mt=12) | 希望通过商店安装和更新的 Mac 用户 | 搜索「OctoShrink 图片压缩」，免费 |
+| 渠道 | 适合 | 获取方式 |
+|---------|----------|---------------|
+| [GitHub Releases](https://github.com/misswell/Sizqo/releases/latest) | 完整视频压缩与最新功能 | 下载对应架构的 macOS 安装包 |
 
-GitHub Releases 提供 macOS Apple Silicon / Intel / Universal 三种 DMG，Windows 安装包（exe / msi）和 Linux 包（AppImage / deb）。两个渠道独立审核与发布，版本号和更新节奏可能略有差异。
+GitHub Releases 提供 Apple Silicon、Intel 与 Universal 版 DMG。直发版已做 Developer ID 签名与公证。
 
 ### 快速上手
 
-1. 打开章小压，把图片或文件夹拖进窗口（也可以点「选择文件」/「选择文件夹」）。
-2. 需要调参数时展开「压缩设置」：质量、力度、输出格式、保存方式；不调就直接开始。
-3. 点「开始压缩」。队列支持随时暂停、停止、追加文件；失败项可单独重试。
-4. 完成后点结果行的「对比」按钮，在独立窗口滑动查看前后效果，不满意可调质量重压。
-5. 覆盖模式下随时可「恢复原图」；打开「历史」页还能找回更早的记录。
-6. 「设置」里可调整原图备份保留期、CPU 使用上限和外观主题。
+1. 打开 Sizqo，把图片、视频或文件夹拖进窗口，或点「选择媒体文件」/「选择文件夹」。
+2. 展开「压缩设置」（图片）或「视频设置」调整编码器、质量、容器和输出位置；不改就用默认值。
+3. 点「开始压缩」。过程中随时可以暂停、停止或继续追加文件。
+4. 点结果行的「对比查看」检查前后效果。视频行还提供播放原/输出视频、同帧对比、查看日志与恢复。
+5. 「覆盖原文件」模式下随时可恢复原图；「历史」页保留更早的记录。
 
-### macOS 提示“已损坏，无法打开”？
+### macOS 提示“已损坏，无法打开”
 
-自 v2.2 起直发版已签名 + 公证 + 装订，正常双击安装即可。若你在使用更早的未签名版本，可在终端执行：
+直发版已经签名、公证并装订票据，正常安装不会遇到这个提示。如果系统仍然拦截，可以在终端移除隔离属性：
 
 ```bash
-sudo xattr -dr com.apple.quarantine /Applications/OctoShrink.app
+sudo xattr -dr com.apple.quarantine /Applications/Sizqo.app
 ```
 
 ## 和在线工具相比
 
-| 能力 | 章小压 | 在线压缩工具 | 命令行工具 |
-|------|:---:|:---:|:---:|
-| 图片不上云 | ✅ | ❌ | ✅ |
-| 批量文件夹递归 | ✅ | 通常受限 | 需要脚本 |
-| 开箱即用 | ✅ | ✅ | 通常需要安装 |
-| 可视化前后对比 | ✅ | 部分支持 | ❌ |
-| 原图备份与一键恢复 | ✅ | ❌ | ❌ |
+| 能力 | Sizqo | 在线压缩 | 命令行工具 |
+|------------|:----------:|:------------------:|:------------------:|
+| 文件留在本机 | ✅ | ❌ | ✅ |
+| 图片和视频一个队列 | ✅ | 少见 | 需要多套工具 |
+| 文件夹递归批量 | ✅ | 通常受限 | 需要写脚本 |
+| 开箱即用 | ✅ | ✅ | 通常要装依赖 |
+| 可视化前后对比 | ✅ | 有时有 | ❌ |
+| 原文件备份与一键恢复 | ✅ | ❌ | ❌ |
 | 断网可用 | ✅ | ❌ | ✅ |
-| 开源免费 | ✅ | 部分免费 | 多数免费 |
+| 免费开源 | ✅ | 部分免费 | 大多免费 |
 
 ## 技术架构
 
-基于 **Tauri 2**（Rust 后端 + 原生 HTML/CSS/JS 前端，无构建步骤），另有第三条 **Swift 原生**产物线。macOS 要求 11.0+（App Store 版 12.0+，Swift 原生版 13.0+）。
+Sizqo 使用 **Tauri 2**（Rust 后端 + 原生 HTML/CSS/JavaScript 前端，前端无构建步骤），另有一个**原生 Swift** 版本。最低系统版本：Direct 11.0、App Store 12.0、Swift 原生 13.0。
 
-### 三条产物线
+### 三条发布线
 
-同一套源码、同一个 master 分支，靠 Cargo feature 分叉：
+| 线 | Bundle ID | 压缩后端 | 视频状态 |
+|-------|-----------|---------------------|--------------|
+| Direct | `com.misswell.sizqo` | 内置 FFmpeg + 图片 CLI 工具（`cli-backends`，默认） | 完整 FFmpeg 管线 |
+| App Store | `com.misswell.sizqo.appstore` | 进程内 Rust 库（`inproc-backends`），沙盒 | 原生桥接与沙盒测试通过前，运行时明确禁用 |
+| Swift 原生 | `com.misswell.sizqo.swift` | ImageIO / 内置图片编码器 | 目前仅图片；视频尚未实现 |
 
-| 产物线 | 分发渠道 | 压缩后端 | 构建脚本 | 产物 |
-|--------|---------|---------|---------|------|
-| Direct（直发） | GitHub Releases | 内置 CLI 工具（`cli-backends`，默认） | `scripts/notarize.sh` | `.app` + `.dmg` |
-| App Store | Mac App Store | 全进程内 Rust 库（`appstore` = `inproc-backends`），沙盒 | `scripts/build_appstore.sh` | `.app` + `.pkg` |
-| Swift 原生 | 源码 / 自行打包 | 与 Direct 共用内置 CLI 编码器；系统转换走 ImageIO | `scripts/build_swift.sh` | `.app` + `.dmg` |
+每条线的实际验证状态记录在 [docs/validation.md](docs/validation.md) —— 构建跑不了的功能要么隐藏、要么说明原因，绝不造假选项。
 
-- App Store 版**不打包、也不 spawn 任何第三方可执行文件**：所有格式走进程内 Rust 库，前端由进程内本地 HTTP 服务器提供（沙盒阻止 `tauri://`），文件访问经 security-scoped bookmark 授权
-- Swift 版与 Direct 共用 pngquant、oxipng、cjpeg、cwebp、avifenc、gifsicle 六个编码器及其压缩参数；构建会校验编码器齐全，Smart Mode 默认也保持一致
-- 三条线的历史记录与备份存储根互相独立，原图备份永不落临时目录
-- 工程规则详见 [AGENTS.md](AGENTS.md)（两条产物线并行、文件访问差异表、entitlements 对照）
+- App Store 版不打包、不启动第三方可执行文件：图片格式全部走进程内 Rust 库，用户文件通过安全作用域书签访问。
+- 图片引擎能力（PNG、JPEG、WebP、AVIF、GIF）三条线一致；App Store 版对图片使用进程内 crate。
+- 三条线各自独立的记录、备份与设置根目录；原文件备份绝不放在临时目录。
+- 工程规则见 [AGENTS.md](AGENTS.md)，视频任务协议见 [core/media-task-protocol.md](core/media-task-protocol.md)。
 
-### 压缩引擎对照
+### 压缩引擎一览
 
-| 格式 | Direct（CLI） | App Store（进程内 crate） | Swift 原生（CLI） |
-|------|--------------|--------------------------|-------------------|
+| 媒体 | Direct (CLI) | App Store (进程内 crate) | Swift 原生 |
+|--------|--------------|-------------------------------|--------------------|
 | PNG | pngquant / oxipng | imagequant / oxipng | 与 Direct 共用二进制 |
 | JPEG | cjpeg (mozjpeg) | mozjpeg | cjpeg (mozjpeg) |
 | WebP | cwebp | webp | cwebp |
 | AVIF | avifenc | ravif | avifenc |
-| GIF | gifsicle（可减色） | image crate 重编码 | gifsicle（可减色） |
-| 系统转换 | macOS ImageIO + CoreGraphics | 同左 | 同左 |
+| GIF | gifsicle（减色） | image crate 重编码 | gifsicle（减色） |
+| 视频 | 内置 FFmpeg（x264 / x265 / SVT-AV1 / VideoToolbox） | 原生桥接验证通过前禁用 | 尚未实现 |
 
-Direct 与 Swift 所需的 CLI 工具及依赖库都打包在各自应用的 `Contents/Resources/bin|lib` 中，通过 `DYLD_FALLBACK_LIBRARY_PATH` 加载，用户无需安装任何依赖；App Store 版不携带这些文件。
+Direct 需要的 CLI 工具与库都打包在应用 `Contents/Resources` 里，用户无需自己安装。内置 FFmpeg 配置不含 GPL 组件；第三方许可细节汇总在 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
 ## 本地开发
 
 ### 环境要求
 
-- [Rust](https://rustup.rs/) 1.77+、[Tauri CLI](https://tauri.app/) 2.x（`cargo install tauri-cli --version "^2.0"`）
-- 开发时需要 CLI 压缩工具（发布产物已内置，无需用户安装）：
+- [Rust](https://rustup.rs/) 1.77+ 与 [Tauri CLI](https://tauri.app/) 2.x（`cargo install tauri-cli --version "^2.0"`）
+- 开发机需要 FFmpeg（含 ffprobe）与图片 CLI 工具；正式包会为用户内置：
 
 ```bash
-brew install pngquant oxipng mozjpeg gifsicle webp jpeg-xl libavif
+brew install ffmpeg pngquant oxipng mozjpeg gifsicle webp jpeg-xl libavif
 ```
 
 ### 常用命令
 
 ```bash
-cargo tauri dev                 # 开发模式（默认 Direct feature）
+cargo tauri dev                 # 开发模式（默认 Direct 特性）
 
-bash scripts/build_all.sh       # 一次构建 Direct + App Store 两版（日常首选，不签名）
+bash scripts/build_all.sh       # 构建 Direct + App Store 版（未签名）
 SIGN=1 bash scripts/build_all.sh
 
-cargo tauri build               # 构建 Direct 发布版
-bash scripts/notarize.sh        # Direct：构建 → 签名 → 公证 → 装订 → DMG
-bash scripts/build_appstore.sh  # App Store：构建 → 签名 → PKG
+cargo tauri build               # 构建 Direct 正式版
+bash scripts/notarize.sh        # Direct：构建、签名、公证、装订、打包 DMG
+bash scripts/build_appstore.sh  # App Store：构建、签名、打包 PKG
 
-# 测试（推 tag 前 CI 不跑测试，这几套就是唯一门禁）
-cargo test                                              # Rust 默认 feature
-cargo test --no-default-features --features inproc-backends   # App Store feature
-npm run test:frontend                                   # 前端队列 / 状态机 / 历史页 / CPU 上限
-bash scripts/test_swift_history.sh                      # Swift 线历史·备份·暂停（真跑文件系统）
+# 测试（发布前本地全部跑一遍）
+cargo test                                                    # 默认 Rust 特性
+cargo test --features inproc-backends                         # 与 App Store 共用的图片引擎
+cargo test --no-default-features --features inproc-backends   # App Store 特性集
+npm run test:frontend                                         # 前端队列、媒体、历史与设置检查
+bash scripts/test_swift_history.sh                            # Swift 历史、备份与暂停检查
 ```
-
-发布流程（推 `vX.Y.Z` 标签 → GitHub Actions 并行构建五大平台、签名公证、自动发布）与签名公证的凭据配置见 [AGENTS.md](AGENTS.md) 第 14 节。
 
 ### 项目结构
 
 ```
-octo-shrink/
-├── frontend/               # 前端（纯 HTML/CSS/JS，无构建步骤）
-│   ├── index.html / app.js # 主窗口
+Sizqo/
+├── frontend/                       # 前端（纯 HTML/CSS/JS，无构建步骤）
+│   ├── index.html / app.js          # 主窗口（媒体工作台）
+│   ├── video-settings.js            # 视频设置面板
 │   └── compare.html / compare_window.js  # 独立对比窗口
-├── src-tauri/              # Rust 后端（两条 Tauri 产物线共用）
+├── src-tauri/                       # 两条 Tauri 线共用的 Rust 后端
 │   ├── src/
-│   │   ├── engine.rs            # 压缩引擎（CLI 后端）
-│   │   ├── engine_inproc.rs     # 压缩引擎（进程内后端，不 spawn 外部进程）
-│   │   ├── commands.rs          # Tauri 命令 + CompressionScheduler（暂停/停止/CPU 闸门）
-│   │   ├── history.rs           # 压缩历史 + 原图备份 + 统一恢复服务
-│   │   ├── output_transaction.rs# 覆盖事务凭证，启动时补记或回滚
-│   │   └── app_settings.rs      # 保留天数 + CPU 上限（同一份 settings.json）
-│   ├── resources/bin|lib/       # Direct / Swift 共用的 CLI 工具与动态库来源；App Store 不打包
-│   ├── entitlements*.plist      # Direct / App Store
-│   └── tauri.conf*.json         # Direct / App Store 两份配置
-├── swift/                  # Swift 原生线（功能对齐，独立存储根）
-├── website/                # 官网（octoshrink.liuguofeng.com）
-├── tests/                  # 前端纯逻辑自检（node 直接跑）
-├── scripts/                # 构建 / 签名 / 公证 / 自检脚本
-└── AGENTS.md               # 工程准则：产物线并行规则、文件访问差异表
+│   │   ├── engine.rs               # 图片压缩引擎（CLI 后端）
+│   │   ├── engine_inproc.rs        # 进程内图片引擎（不启动子进程）
+│   │   ├── video/                  # 视频探测、能力矩阵、计划、编码、校验、事务
+│   │   ├── video_commands.rs       # 媒体 Tauri 命令（探测、会话、进度、帧）
+│   │   ├── commands.rs             # 图片 Tauri 命令与 CompressionScheduler
+│   │   ├── history.rs              # 历史、备份与恢复服务
+│   │   └── output_transaction.rs   # 替换日志与崩溃恢复
+│   └── tauri.conf*.json             # Direct / App Store 配置
+├── swift/                           # 原生 Swift 版本，独立的存储根目录
+├── core/                            # 状态机与媒体任务协议文档
+├── tests/                           # 前端检查（Node.js 直接运行）
+├── scripts/                         # 构建、签名、公证与验证脚本
+└── AGENTS.md                        # 工程规则与发布线要求
 ```
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE)。内置的第三方组件（FFmpeg、图片编码器）各自遵循其许可 —— 见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
 ---
 
 ## 👨‍💻 作者的其他开源项目
 
-**[MacPilot](https://github.com/misswell/MacPilot)** —— 开源 macOS 菜单栏效率工具箱（Swift 原生 · 零第三方依赖）：应用自动退出规则、BLE 靠近解锁、窗口切换器、剪贴板历史、平滑滚动、画中画、录屏、截图贴图等 11 合 1，Apple 公证签名，[免费下载](https://github.com/misswell/MacPilot/releases/latest)。觉得有用欢迎点个 Star ⭐
+**[MacPilot](https://github.com/misswell/MacPilot)** —— 零第三方依赖的原生 macOS 菜单栏工具箱，集应用自动退出、BLE 靠近解锁、窗口切换、剪贴板历史、平滑滚动、画中画、录屏、截屏钉图等于一身。[免费下载](https://github.com/misswell/MacPilot/releases/latest)，欢迎点个 ⭐

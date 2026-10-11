@@ -1,6 +1,6 @@
-// OctoShrink - 持久化的压缩历史与原图备份。
+// Sizqo - 持久化的压缩历史与原图备份。
 //
-// 与旧的 `$TMPDIR/octoshrink-backups` 模型的根本区别：清理只针对 OctoShrink 自己
+// 与旧的 `$TMPDIR/sizqo-backups` 模型的根本区别：清理只针对 Sizqo 自己
 // 写的副本 —— 用户的原图和压缩结果永远不在删除范围内。
 //
 // 清理只有一个时机：**正常退出**。启动时一律不动备份。
@@ -87,7 +87,7 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
             .map_err(|e| e.to_string())?;
         file.write_all(bytes).map_err(|e| e.to_string())?;
         file.flush().map_err(|e| e.to_string())?;
-        file.sync_all().ok();
+        file.sync_all().map_err(|e| e.to_string())?;
     }
     fs::rename(&tmp, path).map_err(|e| {
         let _ = fs::remove_file(&tmp);
@@ -112,6 +112,10 @@ pub enum HistoryStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HistoryEntry {
+    #[serde(default = "default_media_kind")]
+    pub media_kind: String,
+    #[serde(default)]
+    pub video_metadata: Option<serde_json::Value>,
     pub id: String,
     pub created_at: i64,
     pub expires_at: i64,
@@ -140,6 +144,8 @@ pub struct HistoryEntry {
     #[serde(default)]
     pub output_exists: bool,
 }
+
+fn default_media_kind() -> String { "image".into() }
 
 static ENTRY_SEQUENCE: AtomicU32 = AtomicU32::new(0);
 
@@ -185,6 +191,8 @@ impl HistoryEntry {
     ) -> Self {
         let created_at = now_millis();
         Self {
+            media_kind: "image".into(),
+            video_metadata: None,
             id,
             created_at,
             // 「不保留」没有"几天后到期"这回事：这份备份的寿命就是这次运行。
@@ -746,6 +754,8 @@ impl HistoryStore {
             let Some(meta) = meta else { continue };
             let source = Path::new(&meta.source_path);
             rebuilt.push(HistoryEntry {
+                media_kind: if crate::video::is_video_extension(source) { "video" } else { "image" }.into(),
+                video_metadata: None,
                 id: format!("recovery-{key}"),
                 created_at: meta.created_at,
                 expires_at: now,
@@ -987,7 +997,7 @@ impl HistoryStore {
             .parent()
             .filter(|p| !p.as_os_str().is_empty())
             .unwrap_or_else(|| Path::new("."));
-        let tmp = parent.join(format!(".octoshrink-restore-{}.tmp", now_nanos()));
+        let tmp = parent.join(format!(".sizqo-restore-{}.tmp", now_nanos()));
         fs::copy(backup, &tmp).map_err(|e| e.to_string())?;
         if let Ok(handle) = fs::File::open(&tmp) {
             // 写回原图这一步不能只留在内核缓存里：崩溃后用户看到的必须真是原图。
@@ -1128,6 +1138,8 @@ fn backup_file_is_live(entry: &HistoryEntry) -> bool {
 pub(crate) fn sample_entry(source: &Path, backup: &Path, id: &str) -> HistoryEntry {
     let created_at = now_millis();
     HistoryEntry {
+        media_kind: "image".into(),
+        video_metadata: None,
         id: id.into(),
         created_at,
         expires_at: created_at + DAY_MILLIS * 3,
@@ -1174,6 +1186,8 @@ mod tests {
 
     fn entry_for(source: &Path, backup: &Path, created_at: i64) -> HistoryEntry {
         HistoryEntry {
+            media_kind: "image".into(),
+            video_metadata: None,
             id: format!(
                 "{}-{}",
                 created_at,
@@ -1290,7 +1304,7 @@ mod tests {
         assert_eq!(report.removed_backups, 1);
         assert!(store.list().is_empty(), "「不保留」= 关掉应用后记录也没了");
         assert!(!dir_of_backup(&backup).exists());
-        // 清的是 OctoShrink 自己的账本和副本，用户的压缩结果一个字节都不动。
+        // 清的是 Sizqo 自己的账本和副本，用户的压缩结果一个字节都不动。
         assert!(source.exists());
         assert_eq!(fs::read(&source).unwrap(), b"compressed");
 

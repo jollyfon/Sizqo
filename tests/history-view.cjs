@@ -2,7 +2,7 @@
 const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
-const { installStateMachine, installQueueCore, installQueueRowPainter } = require('./app-slices.cjs');
+const { installStateMachine, installQueueCore, installQueueRowPainter, installMediaWorkspaceStubs } = require('./app-slices.cjs');
 
 function makeEl(tag) {
   let html = '';
@@ -105,6 +105,7 @@ const context = vm.createContext({
 });
 const source = require('./app-slices.cjs').source;
 const slice = (from, to) => source.slice(source.indexOf(from), source.indexOf(to));
+installMediaWorkspaceStubs(context);
 installStateMachine(context);
 installQueueCore(context);
 installQueueRowPainter(context);
@@ -360,7 +361,7 @@ const actionsOf = row => row.children[4].children.map(btn => btn.dataset.history
   context.historyEntries = [entry({}), entry({ id: 'e9', backupExists: false })];
   await context.clearHistory();
   context.confirm = () => confirmAnswer;
-  assert.match(question, /立即删除 OctoShrink 保存的 1 份原图备份/);
+  assert.match(question, /立即删除 Sizqo 保存的 1 份原图备份/);
   assert.match(question, /不会删除你的任何图片文件/);
   assert.ok(invoked.some(call => call[0] === 'clear_history'), '空闲时清空照常走后端');
 

@@ -1,9 +1,9 @@
-// OctoShrink Swift 线 —— 历史 / 原图备份 / 暂停 / CPU 上限的行为自检。
+// Sizqo Swift 线 —— 历史 / 原图备份 / 暂停 / CPU 上限的行为自检。
 //
 // 跑法：bash scripts/test_swift_history.sh
 // Swift 线用 swiftc 直接编译、没有 Package.swift 测试 target，所以这里是可执行自检而不是 XCTest。
 //
-// 守的是规范里最不能坏的几条：备份绝不覆盖真正原图、清理只删 OctoShrink
+// 守的是规范里最不能坏的几条：备份绝不覆盖真正原图、清理只删 Sizqo
 // 自己的副本、清理唯一的时机是正常退出（崩溃现场那份可能是唯一的原图，启动时一个都不动）、
 // 恢复必须原子写回、压缩后被外部改过必须先问用户、暂停和改 CPU 上限都只拦
 // 「还没开始」的任务、CPU 上限真的限住同时跑的任务数。
@@ -27,7 +27,7 @@ func check(_ condition: Bool, _ message: String) {
 let fm = FileManager.default
 
 func freshRoot(_ tag: String) -> String {
-    let dir = NSTemporaryDirectory() + "octoshrink-swift-check-\(tag)-\(UUID().uuidString)"
+    let dir = NSTemporaryDirectory() + "sizqo-swift-check-\(tag)-\(UUID().uuidString)"
     try? fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
     return dir
 }
@@ -97,7 +97,7 @@ func launchTasks(
 ) -> (meter: PeakMeter, group: TaskGroup) {
     let meter = PeakMeter()
     let group = TaskGroup()
-    let queue = DispatchQueue(label: "octoshrink-scheduler-check", attributes: .concurrent)
+    let queue = DispatchQueue(label: "sizqo-scheduler-check", attributes: .concurrent)
     for _ in 0..<tasks {
         group.enter()
         queue.async {
@@ -126,7 +126,7 @@ func waitUntil(timeout: TimeInterval = 1.0, _ condition: () -> Bool) -> Bool {
 func ageEntry(_ id: String, daysAgo: Double, in store: HistoryStore) {
     var entries = store.list()
     for index in entries.indices where entries[index].id == id {
-        entries[index].createdAt = OctoClock.nowMillis - Int64(daysAgo * Double(historyDayMillis))
+        entries[index].createdAt = SizqoClock.nowMillis - Int64(daysAgo * Double(historyDayMillis))
     }
     guard let data = try? JSONEncoder().encode(entries) else { return }
     _ = writeAtomic(path: store.historyFile, data: data)
@@ -146,7 +146,7 @@ func result(file: String, size: Int64, outType: String = "png") -> CompressResul
 print("[1] ensureBackup 绝不覆盖真正原图")
 do {
     let store = tempStore("1")
-    let source = canonicalPath(NSTemporaryDirectory() + "octoshrink-check-1/a.png")
+    let source = canonicalPath(NSTemporaryDirectory() + "sizqo-check-1/a.png")
     makeFile(source, [1, 1, 1])
 
     let first = store.ensureBackup(for: source)
@@ -162,7 +162,7 @@ do {
 // ─── 2. 备份 key 跨启动稳定 ────────────────────────────────────────────────
 print("[2] backupKey 跨启动稳定")
 do {
-    let source = canonicalPath(NSTemporaryDirectory() + "octoshrink-check-2/b.jpg")
+    let source = canonicalPath(NSTemporaryDirectory() + "sizqo-check-2/b.jpg")
     makeFile(source, [4, 4])
     let keyA = HistoryStore.backupKey(forPath: source)
     let keyB = tempStore("2").ensureBackup(for: source).flatMap { HistoryStore.key(ofBackupPath: $0) }
@@ -173,7 +173,7 @@ do {
 
     // 哈希撞槽时往后挪位，不能串了别人的原图
     let store = tempStore("2b")
-    let taken = canonicalPath(NSTemporaryDirectory() + "octoshrink-check-2b/taken.png")
+    let taken = canonicalPath(NSTemporaryDirectory() + "sizqo-check-2b/taken.png")
     makeFile(taken, [7])
     let dir = store.backupsDir + "/" + HistoryStore.backupKey(forPath: taken)
     try? fm.createDirectory(atPath: dir, withIntermediateDirectories: true)
@@ -184,13 +184,13 @@ do {
     check(moved.map { readBytes($0) } == [7], "挪位后备份的仍是本图真正原图")
 }
 
-// ─── 3. 退出清理只删 OctoShrink 自己的记录与备份 ───────────────────────────
+// ─── 3. 退出清理只删 Sizqo 自己的记录与备份 ───────────────────────────
 // 这里测的是"按天保留"那一支，所以显式写 3 天，不用 Retention.defaultDays
 // （默认档已经变成 0 = 不保留，见 [19]）。
 print("[3] applyRetentionOnExit 只清自己的副本")
 do {
     let store = tempStore("3")
-    let source = canonicalPath(NSTemporaryDirectory() + "octoshrink-check-3/c.png")
+    let source = canonicalPath(NSTemporaryDirectory() + "sizqo-check-3/c.png")
     makeFile(source, [7, 7, 7])
     let userOutput = ((source as NSString).deletingPathExtension) + "_compressed.png"
     makeFile(userOutput, [8, 8])
@@ -207,7 +207,7 @@ do {
     ageEntry(entry.id, daysAgo: 10, in: store)
 
     let report = store.applyRetentionOnExit(
-        retentionDays: 3, runStartedAt: OctoClock.nowMillis, previousRunEndedCleanly: true)
+        retentionDays: 3, runStartedAt: SizqoClock.nowMillis, previousRunEndedCleanly: true)
     check(report.removedEntries == 1, "过期历史记录被删除")
     check(report.removedBackups == 1, "无人引用的原图备份被删除")
     check(store.list().isEmpty, "历史页清空")
@@ -234,7 +234,7 @@ do {
 print("[4] restore 原子写回并共享备份")
 do {
     let store = tempStore("4")
-    let source = canonicalPath(NSTemporaryDirectory() + "octoshrink-check-4/d.png")
+    let source = canonicalPath(NSTemporaryDirectory() + "sizqo-check-4/d.png")
     makeFile(source, [1, 2, 3])
     let backup = store.ensureBackup(for: source)!
 
@@ -263,9 +263,9 @@ do {
     check(listed.allSatisfy { $0.backupPath == nil && !$0.backupExists }, "已恢复记录不再引用备份")
     let again = store.restoreOutcome(entry: listed[0], force: false)
     check(!again.success && !again.conflict, "重复恢复被拒：\(again.error ?? "")")
-    // 目录里没有残留的 .octoshrink-restore-*.tmp（原子替换不留临时文件）
+    // 目录里没有残留的 .sizqo-restore-*.tmp（原子替换不留临时文件）
     let leftovers = ((try? fm.contentsOfDirectory(atPath: (source as NSString).deletingLastPathComponent)) ?? [])
-        .filter { $0.hasPrefix(".octoshrink-restore-") }
+        .filter { $0.hasPrefix(".sizqo-restore-") }
     check(leftovers.isEmpty, "恢复不留临时文件")
 }
 
@@ -273,7 +273,7 @@ do {
 print("[5] 外部修改检测")
 do {
     let store = tempStore("5")
-    let source = canonicalPath(NSTemporaryDirectory() + "octoshrink-check-5/e.png")
+    let source = canonicalPath(NSTemporaryDirectory() + "sizqo-check-5/e.png")
     makeFile(source, [1, 0, 0])
     let backup = store.ensureBackup(for: source)!
     writeData(source, [2, 2, 2]) // 压缩结果落盘
@@ -303,7 +303,7 @@ do {
 print("[6] mtime 抖动容忍 2 秒")
 do {
     let store = tempStore("6")
-    let source = canonicalPath(NSTemporaryDirectory() + "octoshrink-check-6/f.png")
+    let source = canonicalPath(NSTemporaryDirectory() + "sizqo-check-6/f.png")
     makeFile(source, [1, 1])
     let backup = store.ensureBackup(for: source)!
     writeData(source, [2, 2])
@@ -325,7 +325,7 @@ do {
 print("[7] 非覆盖模式的撤销")
 do {
     let store = tempStore("7")
-    let source = canonicalPath(NSTemporaryDirectory() + "octoshrink-check-7/g.png")
+    let source = canonicalPath(NSTemporaryDirectory() + "sizqo-check-7/g.png")
     makeFile(source, [1, 1, 1])
     let output = ((source as NSString).deletingPathExtension) + "_compressed.png"
     makeFile(output, [2, 2])
@@ -347,7 +347,7 @@ do {
 print("[8] findLatest(forSource:)")
 do {
     let store = tempStore("8")
-    let source = canonicalPath(NSTemporaryDirectory() + "octoshrink-check-8/h.png")
+    let source = canonicalPath(NSTemporaryDirectory() + "sizqo-check-8/h.png")
     makeFile(source, [1])
     var compressed = result(file: source, size: 1)
     compressed.outputPath = source
@@ -363,7 +363,7 @@ do {
     check(store.findLatest(forSource: source)?.id == newer.id, "取最近一条未恢复的记录")
     // 符号链接写法（/var ↔ /private/var）也要命中同一条记录
     check(store.findLatest(forSource: NSTemporaryDirectory().replacingOccurrences(of: "/private", with: "")
-                              + "octoshrink-check-8/h.png")?.id == newer.id, "路径规范化后才比对")
+                              + "sizqo-check-8/h.png")?.id == newer.id, "路径规范化后才比对")
     _ = try? store.restore(entry: newer, force: false)
     check(store.findLatest(forSource: source) == nil, "共享备份的兄弟记录一起标已恢复")
 }
@@ -372,7 +372,7 @@ do {
 print("[9] clear 清空历史")
 do {
     let store = tempStore("9")
-    let source = canonicalPath(NSTemporaryDirectory() + "octoshrink-check-9/i.png")
+    let source = canonicalPath(NSTemporaryDirectory() + "sizqo-check-9/i.png")
     makeFile(source, [1, 2])
     var compressed = result(file: source, size: 2)
     compressed.outputPath = source
@@ -416,7 +416,7 @@ do {
     let root = freshRoot("11")
     writeData(root + "/backups", [0]) // backups 位置做成普通文件 → 建目录必失败
     let store = HistoryStore(root: root)
-    let source = canonicalPath(NSTemporaryDirectory() + "octoshrink-check-11/j.png")
+    let source = canonicalPath(NSTemporaryDirectory() + "sizqo-check-11/j.png")
     makeFile(source, [1, 2, 3])
     check(store.ensureBackup(for: source) == nil, "备份写不成时返回 nil")
     check(readBytes(source) == [1, 2, 3], "调用方据此跳过覆盖，用户文件保持原样")
@@ -465,7 +465,7 @@ do {
 print("[13] history.json 为 camelCase")
 do {
     let store = tempStore("13")
-    let source = canonicalPath(NSTemporaryDirectory() + "octoshrink-check-13/k.png")
+    let source = canonicalPath(NSTemporaryDirectory() + "sizqo-check-13/k.png")
     makeFile(source, [1])
     var compressed = result(file: source, size: 1)
     compressed.outputPath = source
@@ -657,7 +657,7 @@ print("[19] 不保留：退出才清，启动不清")
 do {
     let root = freshRoot("19")
     let store = tempStore("19", at: root)
-    let source = canonicalPath(NSTemporaryDirectory() + "octoshrink-check-19/i.png")
+    let source = canonicalPath(NSTemporaryDirectory() + "sizqo-check-19/i.png")
     makeFile(source, [1, 9])
     let userOutput = ((source as NSString).deletingPathExtension) + "_compressed.png"
     makeFile(userOutput, [2, 9])
@@ -706,7 +706,7 @@ do {
     ageEntry(stale.id, daysAgo: 10, in: store)
     let collected = store.applyRetentionOnExit(
         retentionDays: Retention.noRetain,
-        runStartedAt: OctoClock.nowMillis,
+        runStartedAt: SizqoClock.nowMillis,
         previousRunEndedCleanly: true
     )
     check(collected.removedEntries == 2 && store.list().isEmpty,
@@ -747,7 +747,7 @@ print("[20] 历史损坏不得变成\"备份没人引用\"")
 do {
     let root = freshRoot("20")
     let store = HistoryStore(root: root)
-    let source = canonicalPath(NSTemporaryDirectory() + "octoshrink-check-20/k.png")
+    let source = canonicalPath(NSTemporaryDirectory() + "sizqo-check-20/k.png")
     makeFile(source, [1, 2, 3])
     let backup = store.ensureBackup(for: source)!
     store.add(HistoryEntry.record(
@@ -805,7 +805,7 @@ func transaction(_ id: String, source: String, output: String, backup: String,
     ReplaceTransaction(
         id: id, historyId: id, sourcePath: source, outputPath: output, backupPath: backup,
         tempOutputPath: nil, originalSize: 3, expectedOutputSize: 1,
-        createdAt: OctoClock.nowMillis, crossFormat: crossFormat
+        createdAt: SizqoClock.nowMillis, crossFormat: crossFormat
     )
 }
 
@@ -813,7 +813,7 @@ do {
     let root = freshRoot("21")
     let store = HistoryStore(root: root)
     let journal = OutputTransactionStore(root: root)
-    let dir = NSTemporaryDirectory() + "octoshrink-check-21"
+    let dir = NSTemporaryDirectory() + "sizqo-check-21"
     let source = canonicalPath(dir + "/a.png")
     makeFile(source, [9, 9, 9])                    // 崩溃现场：源文件已是压缩结果
     let backupFile = dir + "/original.png"
@@ -871,7 +871,7 @@ do {
 print("[22] 备份必须文件与来历记录双全")
 do {
     let root = freshRoot("22")
-    let source = canonicalPath(NSTemporaryDirectory() + "octoshrink-check-22/m.png")
+    let source = canonicalPath(NSTemporaryDirectory() + "sizqo-check-22/m.png")
     makeFile(source, [1, 2, 3])
     let store = HistoryStore(root: root)
     let key = HistoryStore.backupKey(forPath: source)
@@ -904,7 +904,7 @@ print("[23] 恢复先写文件，历史失败就保留备份")
 do {
     let root = freshRoot("23")
     let store = HistoryStore(root: root)
-    let source = canonicalPath(NSTemporaryDirectory() + "octoshrink-check-23/n.png")
+    let source = canonicalPath(NSTemporaryDirectory() + "sizqo-check-23/n.png")
     makeFile(source, [1, 2, 3])
     let backup = store.ensureBackup(for: source)!
     let entry = HistoryEntry.record(
@@ -932,7 +932,7 @@ print("[24] 删压缩输出前必须判同一性")
 do {
     let root = freshRoot("24")
     let store = HistoryStore(root: root)
-    let realDir = NSTemporaryDirectory() + "octoshrink-check-24"
+    let realDir = NSTemporaryDirectory() + "sizqo-check-24"
     let source = canonicalPath(realDir + "/o.png")
     makeFile(source, [1, 2, 3])
     let backup = store.ensureBackup(for: source)!
@@ -998,7 +998,7 @@ do {
 print("[26] historyRowActions 与压缩完成行对齐")
 do {
     let store = tempStore("26")
-    let dir = NSTemporaryDirectory() + "octoshrink-check-26"
+    let dir = NSTemporaryDirectory() + "sizqo-check-26"
     let tail: [HistoryRowAction] = [.finder, .copyLog]
 
     // ① replace + 备份还在 → 有「恢复原图」，没有「删除这次压缩结果」
@@ -1067,7 +1067,7 @@ do {
     let rebuiltBackup = canonicalPath(dir + "/e-backup.png")
     makeFile(rebuiltBackup, [2])
     let rebuilt = HistoryEntry(
-        id: "recovery-row", createdAt: OctoClock.nowMillis, expiresAt: OctoClock.nowMillis,
+        id: "recovery-row", createdAt: SizqoClock.nowMillis, expiresAt: SizqoClock.nowMillis,
         sourcePath: rebuiltSource, outputPath: rebuiltSource,
         fileName: "e.png", outputMode: "replace",
         originalSize: 1, compressedSize: 1, savings: 0, outType: "png", algorithm: "",
@@ -1256,7 +1256,7 @@ do {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("Sources/OctoShrinkSwift/ViewModels/AppState.swift").path,
+            .appendingPathComponent("Sources/SizqoSwift/ViewModels/AppState.swift").path,
         encoding: .utf8)
     check(appStateSource.contains("@Published var settingsExpanded = false"),
           "settingsExpanded 初值必须是 false（默认折叠）")
@@ -1269,7 +1269,7 @@ do {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("Sources/OctoShrinkSwift/Views/ContentView.swift").path,
+            .appendingPathComponent("Sources/SizqoSwift/Views/ContentView.swift").path,
         encoding: .utf8)
     check(contentSource.contains("appState.settingsExpanded.toggle()"),
           "只有点标题那一下才切换（ContentView 的 SettingsPanelView 里）")
@@ -1374,7 +1374,7 @@ do {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("Sources/OctoShrinkSwift/ViewModels/AppState.swift").path,
+            .appendingPathComponent("Sources/SizqoSwift/ViewModels/AppState.swift").path,
         encoding: .utf8)
     check(appStateSource.contains("case .auto: NSApp.appearance = nil"),
           "auto 必须解成 nil（AppKit 才会实时跟随系统外观切换）")

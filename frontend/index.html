@@ -3,13 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>OctoShrink</title>
+  <title>Sizqo</title>
   <script>
     // 在外链 CSS / JS 加载前同步确定首帧主题，避免 WebView 默认白色画布闪烁。
     (() => {
       let mode = 'auto';
       try {
-        const stored = localStorage.getItem('octoshrink-theme');
+        const stored = localStorage.getItem('sizqo-theme');
         if (stored === 'light' || stored === 'dark') mode = stored;
       } catch (_) {}
       const resolved = mode === 'auto'
@@ -71,8 +71,8 @@
  <div class="titlebar">
    <div class="titlebar-traffic-spacer"></div>
    <div class="titlebar-drag" data-tauri-drag-region>
-     <img src="octo-icon-light.png" data-light-src="octo-icon-light.png" data-dark-src="octo-icon-dark.png" class="titlebar-icon-img" alt="OctoShrink">
-     <span class="titlebar-text">OctoShrink</span>
+     <img src="octo-icon-light.png" data-light-src="octo-icon-light.png" data-dark-src="octo-icon-dark.png" class="titlebar-icon-img" alt="Sizqo">
+     <span class="titlebar-text">Sizqo</span>
    </div>
     <div class="titlebar-progress" id="titlebarProgress" style="width:0%"></div>
   <div class="titlebar-actions">
@@ -85,6 +85,13 @@
    </div>
  </div>
 
+  <nav class="media-navigation" aria-label="媒体类型">
+    <button type="button" class="media-nav-button active" data-media-view="all" onclick="setMediaFilter('all')">全部</button>
+    <button type="button" class="media-nav-button" data-media-view="image" onclick="setMediaFilter('image')">图片</button>
+    <button type="button" class="media-nav-button" data-media-view="video" onclick="setMediaFilter('video')">视频</button>
+    <button type="button" class="media-nav-button" data-media-view="history" onclick="showView('history')">历史</button>
+  </nav>
+
   <!-- Main Layout -->
   <div class="container" id="mainView">
     <!-- Drop Zone -->
@@ -93,12 +100,12 @@
         <div class="dropzone-icon">
           <span class="dropzone-icon-disc"><svg class="symbol-icon symbol-icon-hero"><use href="#icon-add-images"/></svg></span>
         </div>
-        <h2 data-i18n-zh="拖拽图片或文件夹到此处">Drop images or folders here</h2>
-        <p data-i18n-zh="支持 PNG、JPG、GIF、WebP、BMP 格式 · 自动批量压缩">Supports PNG, JPG, GIF, WebP, and BMP · Automatic batch compression</p>
+        <h2 data-i18n-zh="拖拽图片、视频或文件夹到此处">Drop images, videos, or folders here</h2>
+        <p data-i18n-zh="自动识别媒体类型 · 文件夹递归扫描 · 大文件分析不阻塞界面">Media types detected automatically · folders scanned recursively</p>
         <div class="dropzone-buttons">
           <button class="btn btn-primary" onclick="event.stopPropagation(); selectFiles()">
             <svg class="symbol-icon"><use href="#icon-add-images"/></svg>
-            <span data-i18n-zh="选择文件">Choose Files</span>
+            <span data-i18n-zh="选择媒体文件">Choose Media</span>
           </button>
           <button class="btn btn-secondary" onclick="event.stopPropagation(); selectFolder()">
             <svg class="symbol-icon"><use href="#icon-folder-add"/></svg>
@@ -113,7 +120,7 @@
       <div class="queue-header">
         <h3>
           <svg class="symbol-icon"><use href="#icon-queue"/></svg>
-          文件队列
+          媒体队列
         </h3>
         <div class="queue-header-right">
           <span class="queue-summary" id="queueSummary">0 个文件</span>
@@ -190,6 +197,59 @@
             停止
           </span>
         </button>
+      </div>
+    </div>
+
+    <div class="settings-panel video-settings-panel collapsed" id="videoSettingsPanel" style="display:none;">
+      <div class="settings-header" onclick="toggleVideoSettings()">
+        <h3><svg class="symbol-icon"><use href="#icon-sliders"/></svg>视频设置<span class="settings-summary" id="videoSettingsSummary"></span></h3>
+        <svg class="symbol-icon settings-chevron"><use href="#icon-chevron-down"/></svg>
+      </div>
+      <div class="settings-body">
+        <div class="video-capability-note" id="videoCapabilityNote" role="status"></div>
+        <div class="video-capability-note" id="videoValidationNote" role="status"></div>
+        <div class="settings-row">
+          <label for="videoPreset">预设</label>
+          <div class="select-wrapper"><select id="videoPreset" class="settings-select"></select></div>
+        </div>
+        <div class="settings-row">
+          <label for="videoContainer">输出容器</label>
+          <div class="select-wrapper"><select id="videoContainer" class="settings-select">
+            <option value="mp4">MP4</option><option value="mov">MOV</option><option value="mkv">MKV</option><option value="webm">WebM</option>
+          </select></div>
+        </div>
+        <details class="video-advanced" id="videoAdvancedOptions">
+          <summary>高级选项</summary>
+          <div class="video-advanced-body">
+            <div class="settings-row"><label for="videoEncoder">视频编码器</label><div class="select-wrapper"><select id="videoEncoder" class="settings-select"></select></div></div>
+            <div class="settings-row"><label for="videoSpeed">编码速度</label><div class="select-wrapper"><select id="videoSpeed" class="settings-select"><option value="ultrafast">ultrafast</option><option value="veryfast">veryfast</option><option value="medium" selected>medium</option><option value="slow">slow</option></select></div></div>
+            <div class="settings-row"><label for="videoMode">控制模式</label><div class="select-wrapper"><select id="videoMode" class="settings-select">
+              <option value="crf">恒定质量（CRF）</option><option value="abr">目标码率（ABR）</option>
+              <option value="twoPass">两遍码率</option><option value="targetSize">目标体积</option>
+            </select></div></div>
+            <div class="settings-row video-mode-field" data-video-modes="crf"><label for="videoCrf">质量值</label><div class="video-number-control"><input id="videoCrf" type="number" min="0" max="63" value="28"><span class="settings-hint" id="videoCrfHint">按所选编码器解释；数值不能跨编码器直接比较</span></div></div>
+            <div class="settings-row video-mode-field" data-video-modes="abr,twoPass"><label for="videoBitrate">目标码率</label><div class="video-number-control"><input id="videoBitrate" type="number" min="64" max="100000" step="100" value="4000"><span class="settings-hint">kbps · 估算不保证最终体积</span></div></div>
+            <div class="settings-row video-mode-field" data-video-modes="targetSize"><label for="videoTargetMiB">目标体积</label><div class="video-number-control"><input id="videoTargetMiB" type="number" min="1" max="1000000" step="1" value="100"><span class="settings-hint">MiB · 音频与容器开销会影响结果</span></div></div>
+            <div class="settings-row"><label for="videoResolution">分辨率</label><div class="select-wrapper"><select id="videoResolution" class="settings-select">
+              <option value="0">保持源分辨率</option><option value="2160">最高 4K</option><option value="1440">最高 1440p</option>
+              <option value="1080">最高 1080p</option><option value="720">最高 720p</option><option value="custom">自定义最长边</option>
+            </select></div><input id="videoResolutionCustom" class="video-inline-number" type="number" min="144" max="16384" value="1080" aria-label="自定义最长边像素" hidden></div>
+            <div class="settings-row"><label for="videoFrameRate">帧率</label><div class="select-wrapper"><select id="videoFrameRate" class="settings-select">
+              <option value="">保持源时间戳 / VFR</option><option value="24">24 fps</option><option value="25">25 fps</option><option value="30">30 fps</option><option value="60">60 fps</option>
+            </select></div></div>
+            <div class="settings-row"><label for="videoAudioPolicy">音频</label><div class="select-wrapper"><select id="videoAudioPolicy" class="settings-select">
+              <option value="copy">兼容音轨优先复制</option><option value="aac">转换为 AAC 160 kbps</option><option value="opus">转换为 Opus 160 kbps</option><option value="none">移除音频</option>
+            </select></div></div>
+            <div class="settings-row"><label for="videoSubtitlePolicy">字幕</label><div class="select-wrapper"><select id="videoSubtitlePolicy" class="settings-select"><option value="copy">保留兼容字幕</option><option value="drop">移除字幕</option></select></div></div>
+            <div class="settings-row"><label for="videoMetadataPolicy">元数据</label><div class="select-wrapper"><select id="videoMetadataPolicy" class="settings-select"><option value="preserve">保留</option><option value="stripPrivate">移除隐私位置数据</option><option value="strip">全部移除</option></select></div></div>
+            <div class="settings-row"><label for="videoOutputMode">输出方式</label><div class="select-wrapper"><select id="videoOutputMode" class="settings-select"><option value="suffix">同目录添加后缀</option><option value="directory">指定目录</option><option value="replace">安全覆盖原文件</option></select></div></div>
+            <div class="settings-row video-output-field" id="videoSuffixRow"><label for="videoOutputSuffix">文件名后缀</label><input id="videoOutputSuffix" class="settings-text-input" value="_compressed" maxlength="64"></div>
+            <div class="settings-row video-output-field" id="videoDirectoryRow" hidden><label>输出目录</label><div class="dir-picker"><span id="videoOutputDirDisplay" class="dir-display">未选择</span><button class="btn btn-small" type="button" onclick="selectVideoOutputDir()">浏览</button></div></div>
+            <div class="settings-row"><label for="videoThreads">编码线程</label><div class="video-number-control"><input id="videoThreads" type="number" min="0" max="256" value="0"><span class="settings-hint">0 = 自动</span></div></div>
+            <div class="settings-row"><label>结果策略</label><div class="toggle-wrapper"><label class="toggle"><input type="checkbox" id="videoAllowLarger"><span class="toggle-slider"></span></label><span class="toggle-label">允许保留更大的输出</span></div></div>
+          </div>
+        </details>
+        <p class="video-estimate-note">预计体积是估算；实际结果取决于素材内容、编码器和轨道开销。</p>
       </div>
     </div>
 
@@ -415,9 +475,28 @@
         </button>
       </div>
     </div>
+    <div class="history-media-filter" role="group" aria-label="历史媒体类型">
+      <button type="button" class="media-nav-button active" data-history-filter="all" onclick="setHistoryFilter('all')">全部</button>
+      <button type="button" class="media-nav-button" data-history-filter="image" onclick="setHistoryFilter('image')">图片</button>
+      <button type="button" class="media-nav-button" data-history-filter="video" onclick="setHistoryFilter('video')">视频</button>
+    </div>
     <div class="history-list" id="historyList"></div>
     <div class="history-empty" id="historyEmpty" hidden>还没有压缩记录</div>
   </div>
+
+  <div class="video-compare-backdrop" id="videoCompareBackdrop" style="display:none;" onclick="closeVideoCompare()"></div>
+  <section class="video-compare-dialog" id="videoCompareDialog" role="dialog" aria-modal="true" aria-labelledby="videoCompareTitle" style="display:none;">
+    <header class="video-compare-header"><h2 id="videoCompareTitle">视频同帧对比</h2><button class="queue-action-btn" type="button" onclick="closeVideoCompare()" aria-label="关闭">×</button></header>
+    <div class="video-compare-labels"><span id="videoCompareSourceLabel">原视频</span><span id="videoCompareOutputLabel">输出视频</span></div>
+    <div class="video-compare-stage" id="videoCompareStage">
+      <img id="videoCompareSourceFrame" alt="原视频帧">
+      <img id="videoCompareOutputFrame" alt="输出视频帧">
+      <div class="video-compare-divider" id="videoCompareDivider"><span></span></div>
+      <div class="video-compare-message" id="videoCompareMessage" hidden></div>
+    </div>
+    <div class="video-compare-timeline"><input id="videoCompareTime" type="range" min="0" max="0" value="0"><span id="videoCompareTimeLabel">00:00</span></div>
+    <div class="video-compare-footer"><span id="videoCompareMetadata"></span><label>缩放 <input id="videoCompareZoom" type="range" min="50" max="250" value="100"><span id="videoCompareZoomLabel">100%</span></label></div>
+  </section>
 
   <!-- Settings View（App 级设置，与压缩参数面板分开） -->
   <div class="container" id="settingsView" style="display:none;">
@@ -492,7 +571,7 @@
           </div>
         </div>
         <p class="settings-copy">
-          覆盖原文件时，OctoShrink 会先保存一份原图备份。<br>
+          覆盖原文件时，Sizqo 会先保存一份原图备份。<br>
           <span id="retentionCopy">本次运行的压缩记录和原图备份都会在关闭应用时清理；期间可以随时恢复原图。</span>
         </p>
       </div>
@@ -514,7 +593,7 @@
           <div class="cpu-control-col">
             <div class="quality-control cpu-control">
               <input type="range" id="cpuLimitSlider" min="1" max="8" step="1" value="3"
-                aria-label="OctoShrink 最多使用的 CPU 并行份数">
+                aria-label="Sizqo 最多使用的 CPU 并行份数">
               <span class="cpu-limit-value" id="cpuLimitValue">自动</span>
               <button class="btn btn-small cpu-auto-btn active" type="button" id="cpuLimitAuto"
                 title="不指定，按机器性能自动决定">自动</button>
@@ -523,7 +602,7 @@
           </div>
         </div>
         <p class="settings-copy">
-          限制 OctoShrink 同时使用的 CPU 并行能力。<br>
+          限制 Sizqo 同时使用的 CPU 并行能力。<br>
           较低的数值会降低压缩速度，但可为其他应用保留更多性能。
           <span id="cpuSchedulingNote" style="display:none;"><br>系统会自动在性能核与能效核之间调度任务。</span>
         </p>
@@ -609,7 +688,8 @@
     </div>
   </div>
 
-  <script>window.OctoShrinkI18n.applyToDocument(document);</script>
+  <script>window.SizqoI18n.applyToDocument(document);</script>
+  <script src="video-settings.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

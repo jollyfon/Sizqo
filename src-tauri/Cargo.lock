@@ -2765,37 +2765,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "octoshrink"
-version = "2.5.0"
-dependencies = [
- "base64 0.22.1",
- "image",
- "imagequant",
- "log",
- "mozjpeg",
- "objc2",
- "objc2-app-kit",
- "objc2-core-foundation",
- "objc2-core-graphics",
- "objc2-foundation",
- "objc2-image-io",
- "oxipng",
- "png 0.18.1",
- "ravif",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-opener",
- "tauri-plugin-updater",
- "tempfile",
- "tokio",
- "url",
- "webp",
-]
-
-[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3912,6 +3881,38 @@ name = "siphasher"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ee5873ec9cce0195efcb7a4e9507a04cd49aec9c83d0389df45b1ef7ba2e649"
+
+[[package]]
+name = "sizqo"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "image",
+ "imagequant",
+ "libc",
+ "log",
+ "mozjpeg",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-core-foundation",
+ "objc2-core-graphics",
+ "objc2-foundation",
+ "objc2-image-io",
+ "oxipng",
+ "png 0.18.1",
+ "ravif",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-opener",
+ "tauri-plugin-updater",
+ "tempfile",
+ "tokio",
+ "url",
+ "webp",
+]
 
 [[package]]
 name = "slab"

@@ -1,5 +1,5 @@
 #!/bin/bash
-# OctoShrink App Store 构建脚本（产物线：appstore = inproc-backends）
+# Sizqo App Store 构建脚本（产物线：appstore = inproc-backends）
 #
 # 与 scripts/notarize.sh 完全独立。走进程内 Rust 库、沙盒 entitlements、
 # Apple Distribution 证书，产物是 .pkg（productbuild archive），待 Transporter 上传。
@@ -16,9 +16,9 @@ export CARGO_PROFILE_RELEASE_PANIC=unwind
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TAURI_DIR="$PROJECT_DIR/src-tauri"
-APP_NAME="OctoShrink"
+APP_NAME="Sizqo"
 APP="$TAURI_DIR/target/release/bundle/macos/$APP_NAME.app"
-BUNDLE_ID="com.misswell.octoshrink.appstore"
+BUNDLE_ID="com.misswell.sizqo.appstore"
 ENTITLEMENTS="$TAURI_DIR/entitlements-appstore.plist"
 CONF="$TAURI_DIR/tauri.conf.appstore.json"
 APP_VERSION="$(sed -n 's/^[[:space:]]*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$CONF" | head -1)"
@@ -54,7 +54,7 @@ if [ -n "$foreign" ]; then
   fail "App Store 包里混进了外部可执行文件/dylib（沙盒线必须全进程内）"
 fi
 # 守的不变量是"MacOS 下只有唯一一个主程序"，与它叫什么名字无关：Tauri 只把 .app
-# 目录建成 productName（OctoShrink），可执行文件仍是 Cargo 包名（octoshrink），
+# 目录建成 productName（Sizqo），可执行文件仍是 Cargo 包名（sizqo），
 # 按 $APP_NAME 比对会把主程序自己判成"额外可执行文件"，自检就永久失败了。
 binaries=$(find "$APP/Contents/MacOS" -mindepth 1 2>/dev/null | wc -l | tr -d ' ')
 if [ "$binaries" != "1" ]; then
@@ -75,7 +75,7 @@ ok "bundle 自检通过（无外部可执行文件、引擎无 spawn）"
 # ITMS-90889（"missing a provisioning profile... not eligible for TestFlight"），
 # 而且这个构建在 TestFlight 里根本不可用。必须在 codesign **之前**放进去，
 # 否则它不在签名的封条内（包一改签名就废）。
-PROFILE_FILE="${APPSTORE_PROFILE:-$PROJECT_DIR/src-tauri/OctoShrink_AppStore.provisionprofile}"
+PROFILE_FILE="${APPSTORE_PROFILE:-$PROJECT_DIR/src-tauri/Sizqo_AppStore.provisionprofile}"
 if [ -f "$PROFILE_FILE" ]; then
   cp "$PROFILE_FILE" "$APP/Contents/embedded.provisionprofile" \
     || fail "无法写入 embedded.provisionprofile"
@@ -88,7 +88,7 @@ if [ -f "$PROFILE_FILE" ]; then
 else
   # 非致命：没有它只是拿不到 TestFlight，审核与上架不受影响。
   log "⚠️  未找到 provisioning profile（$PROFILE_FILE）—— 可提交审核，但该构建不能用于 TestFlight"
-  log "    重建：asc profiles create --name \"OctoShrink macOS AppStore\" --profile-type MAC_APP_STORE \\"
+  log "    重建：asc profiles create --name \"Sizqo macOS AppStore\" --profile-type MAC_APP_STORE \\"
   log "          --bundle 9G3X34F4VY --certificate L4SC3D834Q"
   log "          asc profiles download --id <PROFILE_ID> --output $PROFILE_FILE"
 fi
@@ -102,7 +102,7 @@ codesign --force --options runtime --entitlements "$ENTITLEMENTS" --sign "$SIGN_
 ok "$APP 已签名"
 
 # ---------- 3. productbuild 打包 .pkg ----------
-PKG="$PROJECT_DIR/OctoShrink-${APP_VERSION}.pkg"
+PKG="$PROJECT_DIR/Sizqo-${APP_VERSION}.pkg"
 INSTALLER_IDENTITY="${APPSTORE_INSTALLER_IDENTITY:-3rd Party Mac Developer Installer: Guofeng Liu (U8U443D7ZL)}"
 log "productbuild: ${PKG}（installer: ${INSTALLER_IDENTITY}）"
 xcrun productbuild --component "$APP" /Applications --sign "$INSTALLER_IDENTITY" "$PKG" \

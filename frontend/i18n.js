@@ -1,7 +1,7 @@
-(function attachOctoShrinkI18n(root) {
+(function attachSizqoI18n(root) {
   'use strict';
 
-  const PREFERENCE_KEY = 'octoshrink-language';
+  const PREFERENCE_KEY = 'sizqo-language';
   const ENGLISH = Object.freeze({
     '还原默认设置': 'Restore defaults', '历史记录': 'History', '设置': 'Settings', '切换主题': 'Switch theme', '关于': 'About',
     '外观': 'Appearance', '主题': 'Theme',
@@ -26,12 +26,12 @@
     '共压缩': 'Compressed', '个文件，节省': ' files, saving', '返回': 'Back', '清空历史记录': 'Clear history', '清空历史': 'Clear history',
     '还没有压缩记录': 'No compression history yet', '历史记录与原图': 'History and originals', '原图备份保留时间': 'Keep original backups for',
     '不保留': 'Do not keep', '1 天': '1 day', '3 天': '3 days', '7 天': '7 days', '14 天': '14 days', '30 天': '30 days',
-    '覆盖原文件时，OctoShrink 会先保存一份原图备份。': 'OctoShrink saves a backup of the original before replacing a file.',
+    '覆盖原文件时，Sizqo 会先保存一份原图备份。': 'Sizqo saves a backup of the original before replacing a file.',
     '本次运行的压缩记录和原图备份都会在关闭应用时清理；期间可以随时恢复原图。': 'Compression history and original backups from this session are cleared when the app closes. You can restore originals before then.',
     '性能': 'Performance', '当前设备': 'This device', '检测中…': 'Detecting…', 'CPU 使用上限': 'CPU usage limit',
-    'OctoShrink 最多使用的 CPU 并行份数': 'Maximum number of CPU workers used by OctoShrink', '自动': 'Automatic',
-    '不指定，按机器性能自动决定': 'Let OctoShrink choose based on this device', '低占用': 'Lower usage', '高性能': 'Higher performance',
-    '限制 OctoShrink 同时使用的 CPU 并行能力。': 'Limit how much CPU parallelism OctoShrink can use.',
+    'Sizqo 最多使用的 CPU 并行份数': 'Maximum number of CPU workers used by Sizqo', '自动': 'Automatic',
+    '不指定，按机器性能自动决定': 'Let Sizqo choose based on this device', '低占用': 'Lower usage', '高性能': 'Higher performance',
+    '限制 Sizqo 同时使用的 CPU 并行能力。': 'Limit how much CPU parallelism Sizqo can use.',
     '较低的数值会降低压缩速度，但可为其他应用保留更多性能。': 'A lower setting reduces compression speed and leaves more resources for other apps.',
     '系统会自动在性能核与能效核之间调度任务。': 'The system schedules work across performance and efficiency cores.',
     '更新': 'Updates', '当前版本': 'Current version', '在线更新': 'App updates', '检查更新': 'Check for updates',
@@ -61,8 +61,8 @@
     ' · 已暂停': ' · paused', ' · 正在停止': ' · stopping', '还有几个在跑': 'Some files are still processing', '上限 / 可用并行数': 'Limit / available workers',
     '同时允许几份 CPU 并行压缩工作': 'Maximum concurrent CPU compression tasks', ' · CPU 自动': ' · CPU automatic', '失败': 'Failed', '已恢复': 'Restored', '已移除': 'Removed',
     '等待中': 'Waiting', '已暂停': 'Paused', '移除': 'Remove', '删除这次压缩结果': 'Delete compressed file', '另存为': 'Save as', '对比查看': 'Compare',
-    '在访达中显示': 'Show in Finder', '重试': 'Retry', '复制日志': 'Copy log', '版本: ': 'Version: ', '=== OctoShrink 压缩日志 ===': '=== OctoShrink compression log ===',
-    '=== OctoShrink 压缩历史 ===': '=== OctoShrink compression history ===', '文件: ': 'File: ', '时间: ': 'Time: ', '状态: ': 'Status: ', '成功': 'Succeeded',
+    '在访达中显示': 'Show in Finder', '重试': 'Retry', '复制日志': 'Copy log', '版本: ': 'Version: ', '=== Sizqo 压缩日志 ===': '=== Sizqo compression log ===',
+    '=== Sizqo 压缩历史 ===': '=== Sizqo compression history ===', '文件: ': 'File: ', '时间: ': 'Time: ', '状态: ': 'Status: ', '成功': 'Succeeded',
     '--- 压缩参数 ---': '--- Compression settings ---', '(未设置)': '(not set)', '--- 压缩结果 ---': '--- Compression result ---', '--- 原图备份 ---': '--- Original backup ---', '未知错误': 'Unknown error', '原始大小: ': 'Original size: ',
     '压缩后大小: ': 'Compressed size: ', '压缩率: ': 'Compression ratio: ', '输出格式: ': 'Output format: ', '(未知)': '(unknown)', '算法: ': 'Algorithm: ',
     '压缩失败': 'Compression failed', '--- 错误信息 ---': '--- Error details ---', '(无)': '(none)', '压缩日志已复制到剪贴板': 'Compression log copied to clipboard.',
@@ -82,9 +82,9 @@
     '，并移除这条历史记录。原图未被覆盖，不受影响。': '. This history entry will be removed. The original was not overwritten.', '明细: 已丢失（这条记录是按原图备份重建出来的）': 'Details unavailable (this entry was rebuilt from the original backup)',
     '输出: ': 'Output: ', '输出方式: ': 'Output mode: ', '明细已丢失': 'Details unavailable', '节省 ': 'Saved ', '按备份重建': 'Rebuilt from backup', ' 条': ' entries',
     '压缩进行中，这一批结束后才能清空历史': 'Compression is in progress. Clear history after this batch finishes.', '读取历史记录失败': 'Could not read compression history.',
-    '确定要清空 ': 'Clear ', ' 条历史记录吗？\n': ' history entries?\n', '同时立即删除 OctoShrink 保存的 ': 'Also delete the ',
-    ' 份原图备份，不必等保留期到期。不会删除你的任何图片文件。': ' original backups saved by OctoShrink. Your image files will not be deleted.',
-    'OctoShrink 目前没有保存原图备份，这次只清记录。不会删除你的任何图片文件。': 'OctoShrink has no saved original backups. Only history will be cleared; your image files will not be deleted.',
+    '确定要清空 ': 'Clear ', ' 条历史记录吗？\n': ' history entries?\n', '同时立即删除 Sizqo 保存的 ': 'Also delete the ',
+    ' 份原图备份，不必等保留期到期。不会删除你的任何图片文件。': ' original backups saved by Sizqo. Your image files will not be deleted.',
+    'Sizqo 目前没有保存原图备份，这次只清记录。不会删除你的任何图片文件。': 'Sizqo has no saved original backups. Only history will be cleared; your image files will not be deleted.',
     '不会删除你的任何图片文件': 'Your image files will not be deleted', '已清空 ': 'Cleared ', ' 条历史记录': ' history entries', '清空失败: ': 'Could not clear history: ',
     '原图备份改为不保留，关闭应用时清理记录和备份': 'Original backups will not be kept. History and backups are cleared when the app closes.',
     '原图备份保留 ': 'Keep original backups for ', ' 天，关闭应用时清理过期项': ' days; expired items are cleared when the app closes.', '设置失败: ': 'Could not save settings: ',
@@ -98,7 +98,25 @@
     '无法加载压缩图，文件可能已被移动或恢复': 'Could not load the compressed image. It may have been moved or restored.', '打开对比失败: ': 'Could not open comparison: ',
     '重新压缩预览加载失败': 'Could not load the recompression preview', '重新压缩完成 (质量: ': 'Recompression complete (quality: ', '重新压缩失败': 'Recompression failed',
     '重新压缩出错: ': 'Recompression error: ', '恢复出错: ': 'Restore error: ', '该文件已恢复原图或被移除': 'This file was restored or removed', '加载失败: ': 'Load failed: ',
-    '原始大小: ': 'Original size: ', '压缩后大小 ': 'Compressed size ', '保存': 'Save'
+    '原始大小: ': 'Original size: ', '压缩后大小 ': 'Compressed size ', '保存': 'Save',
+    '按所选编码器解释；数值不能跨编码器直接比较': 'Interpreted by the selected encoder; values are not comparable across encoders',
+    '预计体积是估算；实际结果取决于素材内容、编码器和轨道开销。': 'The estimated size is an estimate; the actual result depends on content, encoder, and track overhead.',
+    '转换为 AAC 160 kbps': 'Convert to AAC 160 kbps', '转换为 Opus 160 kbps': 'Convert to Opus 160 kbps',
+    'kbps · 估算不保证最终体积': 'kbps · Estimated; the final size is not guaranteed', 'MiB · 音频与容器开销会影响结果': 'MiB · Audio and container overhead affect the result',
+    '恒定质量（CRF）': 'Constant quality (CRF)', '目标码率（ABR）': 'Target bitrate (ABR)', '两遍码率': 'Two-pass bitrate',
+    '保持源分辨率': 'Keep source resolution', '保持源时间戳 / VFR': 'Keep source timestamps / VFR', '自定义最长边像素': 'Custom longest edge in pixels',
+    '最高 4K': 'Up to 4K', '最高 1440p': 'Up to 1440p', '最高 1080p': 'Up to 1080p', '最高 720p': 'Up to 720p', '自定义最长边': 'Custom longest edge',
+    '兼容音轨优先复制': 'Copy compatible audio first', '移除隐私位置数据': 'Remove privacy location data',
+    '移除音频': 'Remove audio', '移除字幕': 'Remove subtitles', '保留兼容字幕': 'Keep compatible subtitles', '全部移除': 'Remove all',
+    '安全覆盖原文件': 'Safely replace the original', '同目录添加后缀': 'Add a suffix in the same folder', '指定目录': 'Specified folder',
+    '允许保留更大的输出': 'Allow keeping a larger output',
+    '视频同帧对比': 'Video frame comparison', '原视频帧': 'Source video frame', '输出视频帧': 'Output video frame',
+    '视频设置': 'Video settings', '视频编码器': 'Video encoder', '历史媒体类型': 'History media type',
+    '原视频': 'Source video', '输出视频': 'Output video', '媒体队列': 'Media queue', '媒体类型': 'Media type',
+    '输出容器': 'Output container', '输出方式': 'Output mode', '高级选项': 'Advanced options', '编码速度': 'Encoding speed', '编码线程': 'Encoding threads',
+    '0 = 自动': '0 = automatic', '控制模式': 'Control mode', '质量值': 'Quality value', '结果策略': 'Result policy',
+    '目标码率': 'Target bitrate', '目标体积': 'Target size', '分辨率': 'Resolution', '帧率': 'Frame rate', '预设': 'Preset',
+    '全部': 'All', '图片': 'Images', '视频': 'Videos', '历史': 'History', '音频': 'Audio', '字幕': 'Subtitles', '保留': 'Keep', '缩放': 'Zoom'
   });
   const replacements = Object.entries(ENGLISH).sort((a, b) => b[0].length - a[0].length);
 
@@ -214,7 +232,7 @@
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 
   if (root && root.document) {
-    root.OctoShrinkI18n = api;
+    root.SizqoI18n = api;
     api.applyToDocument(root.document);
   }
 })(typeof window === 'undefined' ? globalThis : window);

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Sizqo runtime video capability matrix",
+  "type": "object",
+  "required": ["backend", "available", "encoders", "muxers", "audioEncoders", "diagnostics"],
+  "properties": {
+    "backend": {"enum": ["ffmpeg", "unavailable", "native"]},
+    "available": {"type": "boolean"},
+    "reason": {"type": ["string", "null"]},
+    "encoders": {"type": "array", "items": {"type": "object", "required": ["id", "label", "modes", "presets"], "properties": {
+      "id": {"type": "string"}, "label": {"type": "string"},
+      "modes": {"type": "array", "items": {"enum": ["crf", "abr", "twoPass", "targetSize"]}},
+      "presets": {"type": "array", "items": {"type": "string"}}
+    }}},
+    "muxers": {"type": "array", "items": {"enum": ["mp4", "mov", "mkv", "webm"]}},
+    "audioEncoders": {"type": "array", "items": {"type": "string"}},
+    "diagnostics": {"type": "array", "items": {"type": "string"}}
+  }
+}

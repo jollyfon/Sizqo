@@ -72,4 +72,23 @@ module.exports = {
   queueRowPainter, installQueueRowPainter,
   sessionModel, installSessionModel,
   stateMachine, installStateMachine,
+  installMediaWorkspaceStubs,
 };
+
+/// 媒体工作台（图片 / 视频过滤、媒体任务导入）在切片外还有几个全局依赖：
+/// mediaFilter / videoSettingsPanel / renderStartButton / window.crypto /
+/// document.querySelectorAll。队列与会话测试只关心队列行为，这里统一补桩，
+/// 谁先显式给过值就不覆盖。
+function installMediaWorkspaceStubs(context) {
+  if (typeof context.mediaFilter === 'undefined') context.mediaFilter = 'all';
+  if (typeof context.historyFilter === 'undefined') context.historyFilter = 'all';
+  if (typeof context.videoSettingsPanel === 'undefined') context.videoSettingsPanel = { style: {} };
+  if (typeof context.renderStartButton !== 'function') context.renderStartButton = () => {};
+  if (typeof context.window === 'undefined') context.window = {};
+  if (typeof context.window.crypto === 'undefined') {
+    context.window.crypto = { randomUUID: () => `task-${Math.random().toString(36).slice(2)}` };
+  }
+  if (context.document && typeof context.document.querySelectorAll !== 'function') {
+    context.document.querySelectorAll = () => [];
+  }
+}

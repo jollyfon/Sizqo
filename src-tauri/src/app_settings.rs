@@ -1,4 +1,4 @@
-// OctoShrink - backend-persisted app settings.
+// Sizqo - backend-persisted app settings.
 //
 // 保留天数必须在后端可读，因为清理挂在正常退出上（`RunEvent::Exit`），
 // 那一刻前端可能已经不存在，localStorage 不可用。
@@ -29,7 +29,7 @@ fn default_retention_days() -> u32 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
-    /// OctoShrink 自己保存的原图备份保留多久；与用户真实文件无关。
+    /// Sizqo 自己保存的原图备份保留多久；与用户真实文件无关。
     /// `0`（[`KEEP_UNTIL_QUIT`]）= 不保留，正常退出时清理。
     #[serde(default = "default_retention_days")]
     pub original_retention_days: u32,

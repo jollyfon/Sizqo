@@ -1,12 +1,12 @@
-// OctoShrink - Tauri frontend
+// Sizqo - Tauri frontend
 // Uses window.__TAURI__ global API (withGlobalTauri: true)
 
 const { invoke, convertFileSrc } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
 function localizeUiText(value) {
-  if (typeof window === 'undefined' || !window.OctoShrinkI18n) return value;
-  return window.OctoShrinkI18n.translateText(value);
+  if (typeof window === 'undefined' || !window.SizqoI18n) return value;
+  return window.SizqoI18n.translateText(value);
 }
 
 function iconMarkup(name, small) {
@@ -73,7 +73,7 @@ async function loadOriginalImage(img, filePath) {
 // ─── 主题管理（自动/亮色/暗黑）──────────────────────────────────
 // 三种模式：auto（跟随系统）、light、dark，循环切换
 const THEMES = ['auto', 'light', 'dark'];
-let currentTheme = localStorage.getItem('octoshrink-theme') || 'auto';
+let currentTheme = localStorage.getItem('sizqo-theme') || 'auto';
 if (!THEMES.includes(currentTheme)) currentTheme = 'auto';
 
 function getResolvedTheme(theme) {
@@ -92,7 +92,7 @@ function updateTitlebarIcon(resolvedTheme) {
 
 function applyTheme(theme) {
   currentTheme = theme;
-  localStorage.setItem('octoshrink-theme', theme);
+  localStorage.setItem('sizqo-theme', theme);
 
   const resolvedTheme = getResolvedTheme(theme);
   invoke('set_startup_theme', { theme: resolvedTheme }).catch(() => {});
@@ -142,8 +142,8 @@ applyTheme(currentTheme);
 var BUILD_VARIANT = (window.location.origin.indexOf('http://localhost') === 0) ? 'App Store' : 'Direct';
 (function() {
   var tb = document.querySelector('.titlebar-text');
-  if (tb) tb.textContent = 'OctoShrink (' + BUILD_VARIANT + ')';
-  try { document.title = 'OctoShrink (' + BUILD_VARIANT + ')'; } catch(e) {}
+  if (tb) tb.textContent = 'Sizqo (' + BUILD_VARIANT + ')';
+  try { document.title = 'Sizqo (' + BUILD_VARIANT + ')'; } catch(e) {}
 })();
 
 // ─── 设置面板折叠 ─────────────────────────────────────────────────
@@ -178,6 +178,17 @@ let pendingAutoCompress = false;
 let outputDir = null;
 let currentCompressOptions = null;
 let processingMode = 'advanced';
+var mediaFilter = 'all';
+var historyFilter = 'all';
+var mediaTaskSeq = 0;
+var videoOutputDir = null;
+var videoCapabilities = { backend: 'unavailable', available: false, reason: '正在检测视频编码能力…', encoders: [], muxers: [] };
+var videoPresets = [];
+var selectedVideoPresetId = 'balanced';
+var currentVideoOptions = window.SizqoVideo.normalizeOptions();
+var videoCompareState = null;
+var videoCoverQueue = [];
+var videoCoverBusy = false;
 
 // DOM Elements
 const dropzone = document.getElementById('dropzone');
@@ -196,6 +207,7 @@ const outputDirDisplay = document.getElementById('outputDirDisplay');
 const outputDirRow = document.getElementById('outputDirRow');
 const outputSuffixRow = document.getElementById('outputSuffixRow');
 const outputSuffixInput = document.getElementById('outputSuffix');
+const videoSettingsPanel = document.getElementById('videoSettingsPanel');
 
 // Quality slider
 qualitySlider.addEventListener('input', () => {
@@ -276,6 +288,288 @@ function getResultOutputSuffix(result) {
   return result && result.compressOptions && result.compressOptions.outputSuffix
     ? result.compressOptions.outputSuffix
     : getOutputSuffix();
+}
+
+function toggleVideoSettings() {
+  var panel = document.getElementById('videoSettingsPanel');
+  if (panel) panel.classList.toggle('collapsed');
+}
+
+function videoOptionsFromControls() {
+  var resolutionValue = document.getElementById('videoResolution').value;
+  return window.SizqoVideo.normalizeOptions({
+    encoder: document.getElementById('videoEncoder').value || 'auto',
+    mode: document.getElementById('videoMode').value || 'crf',
+    crf: parseInt(document.getElementById('videoCrf').value, 10),
+    bitrateKbps: parseInt(document.getElementById('videoBitrate').value, 10),
+    targetMiB: parseFloat(document.getElementById('videoTargetMiB').value),
+    preset: document.getElementById('videoSpeed').value || 'medium',
+    resolution: resolutionValue === 'custom'
+      ? parseInt(document.getElementById('videoResolutionCustom').value, 10)
+      : parseInt(resolutionValue, 10),
+    frameRate: document.getElementById('videoFrameRate').value
+      ? parseInt(document.getElementById('videoFrameRate').value, 10) : null,
+    audioPolicy: document.getElementById('videoAudioPolicy').value,
+    subtitlePolicy: document.getElementById('videoSubtitlePolicy').value,
+    metadataPolicy: document.getElementById('videoMetadataPolicy').value,
+    outputMode: document.getElementById('videoOutputMode').value,
+    outputDir: document.getElementById('videoOutputMode').value === 'directory' ? videoOutputDir : null,
+    outputSuffix: document.getElementById('videoOutputSuffix').value.trim() || '_compressed',
+    allowLargerOutput: document.getElementById('videoAllowLarger').checked,
+    container: document.getElementById('videoContainer').value,
+    threads: parseInt(document.getElementById('videoThreads').value, 10) || 0,
+  });
+}
+
+function applyVideoOptions(options) {
+  currentVideoOptions = window.SizqoVideo.normalizeOptions(options);
+  var setValue = function(id, value) {
+    var element = document.getElementById(id);
+    if (element && value != null) element.value = String(value);
+  };
+  setValue('videoEncoder', currentVideoOptions.encoder);
+  setValue('videoMode', currentVideoOptions.mode);
+  setValue('videoSpeed', currentVideoOptions.preset);
+  setValue('videoCrf', currentVideoOptions.crf);
+  setValue('videoBitrate', currentVideoOptions.bitrateKbps);
+  setValue('videoTargetMiB', currentVideoOptions.targetMiB);
+  setValue('videoPreset', currentVideoOptions.preset);
+  setValue('videoResolution', [0, 2160, 1440, 1080, 720].includes(Number(currentVideoOptions.resolution)) ? currentVideoOptions.resolution : 'custom');
+  if (![0, 2160, 1440, 1080, 720].includes(Number(currentVideoOptions.resolution))) setValue('videoResolutionCustom', currentVideoOptions.resolution);
+  setValue('videoFrameRate', currentVideoOptions.frameRate);
+  setValue('videoAudioPolicy', currentVideoOptions.audioPolicy);
+  setValue('videoSubtitlePolicy', currentVideoOptions.subtitlePolicy);
+  setValue('videoMetadataPolicy', currentVideoOptions.metadataPolicy);
+  setValue('videoOutputMode', currentVideoOptions.outputMode);
+  setValue('videoOutputSuffix', currentVideoOptions.outputSuffix);
+  setValue('videoContainer', currentVideoOptions.container);
+  setValue('videoThreads', currentVideoOptions.threads);
+  var allowLarger = document.getElementById('videoAllowLarger');
+  if (allowLarger) allowLarger.checked = !!currentVideoOptions.allowLargerOutput;
+  videoOutputDir = currentVideoOptions.outputDir || videoOutputDir;
+  var dirDisplay = document.getElementById('videoOutputDirDisplay');
+  if (dirDisplay) { dirDisplay.textContent = videoOutputDir || localizeUiText('未选择'); dirDisplay.title = videoOutputDir || ''; }
+  syncVideoSettingsControls();
+}
+
+function syncVideoSettingsControls() {
+  currentVideoOptions = videoOptionsFromControls();
+  var mode = currentVideoOptions.mode;
+  document.querySelectorAll('.video-mode-field').forEach(function(row) {
+    var modes = (row.dataset.videoModes || '').split(',');
+    row.hidden = !modes.includes(mode);
+  });
+  var customResolution = document.getElementById('videoResolutionCustom');
+  if (customResolution) customResolution.hidden = document.getElementById('videoResolution').value !== 'custom';
+  var outputMode = currentVideoOptions.outputMode;
+  var suffixRow = document.getElementById('videoSuffixRow');
+  var directoryRow = document.getElementById('videoDirectoryRow');
+  if (suffixRow) suffixRow.hidden = outputMode !== 'suffix';
+  if (directoryRow) directoryRow.hidden = outputMode !== 'directory';
+
+  var modes = window.SizqoVideo.encoderModes(videoCapabilities, currentVideoOptions.encoder);
+  var modeSelect = document.getElementById('videoMode');
+  if (modeSelect) Array.from(modeSelect.options).forEach(function(option) {
+    option.disabled = videoCapabilities.available !== true || !modes.includes(option.value);
+  });
+  updateVideoSettingsSummary();
+  renderVideoQueueRows();
+}
+
+function updateVideoSettingsSummary() {
+  var summary = document.getElementById('videoSettingsSummary');
+  if (!summary) return;
+  var parts = [];
+  var preset = videoPresets.find(function(entry) { return window.SizqoVideo.presetId(entry) === selectedVideoPresetId; });
+  parts.push(preset ? window.SizqoVideo.presetLabel(preset) : window.SizqoVideo.PRESET_LABELS[currentVideoOptions.preset] || currentVideoOptions.preset);
+  parts.push(currentVideoOptions.container.toUpperCase());
+  parts.push(currentVideoOptions.resolution === 0 ? localizeUiText('保持分辨率') : localizeUiText('最长边 ') + currentVideoOptions.resolution + ' px');
+  summary.textContent = parts.join(' · ');
+}
+
+function saveVideoSettings() {
+  currentVideoOptions = videoOptionsFromControls();
+  try { localStorage.setItem('sizqo-video-settings', JSON.stringify({ options: currentVideoOptions, selectedPresetId: selectedVideoPresetId })); } catch (_) {}
+  syncVideoSettingsControls();
+}
+
+function loadVideoSettings() {
+  var saved = null;
+  try { saved = JSON.parse(localStorage.getItem('sizqo-video-settings') || 'null'); } catch (_) {}
+  if (saved && saved.options) {
+    selectedVideoPresetId = saved.selectedPresetId || 'balanced';
+    applyVideoOptions(saved.options);
+    return true;
+  }
+  selectedVideoPresetId = 'balanced';
+  applyVideoOptions(saved || window.SizqoVideo.DEFAULT_OPTIONS);
+  return false;
+}
+
+function applyVideoPreset(presetId) {
+  var entry = videoPresets.find(function(preset) { return window.SizqoVideo.presetId(preset) === presetId; });
+  if (!entry || !entry.options || entry.available === false || entry.directOnly && videoCapabilities.backend !== 'ffmpeg') return false;
+  var previous = videoOptionsFromControls();
+  selectedVideoPresetId = presetId;
+  // Presets configure encoding choices while retaining the user's output and
+  // preservation preferences. The advanced controls remain editable after this.
+  var options = Object.assign({}, previous, entry.options, {
+    outputMode: previous.outputMode,
+    outputDir: previous.outputDir,
+    outputSuffix: previous.outputSuffix,
+    allowLargerOutput: previous.allowLargerOutput,
+    metadataPolicy: previous.metadataPolicy,
+    subtitlePolicy: previous.subtitlePolicy,
+  });
+  applyVideoOptions(options);
+  saveVideoSettings();
+  return true;
+}
+
+function renderVideoCapabilities() {
+  var note = document.getElementById('videoCapabilityNote');
+  var encoderSelect = document.getElementById('videoEncoder');
+  var presetSelect = document.getElementById('videoPreset');
+  if (note) {
+    var message = videoCapabilities.available
+      ? (videoCapabilities.reason || (videoCapabilities.backend === 'ffmpeg' ? localizeUiText('Direct 使用独立 FFmpeg 编码能力；编码器按当前运行时检测结果开放。') : localizeUiText('视频编码能力已检测。')))
+      : (videoCapabilities.reason || localizeUiText('此版本当前不提供可运行的视频编码器。'));
+    note.textContent = message;
+    note.classList.toggle('visible', !videoCapabilities.available || !!videoCapabilities.reason);
+    note.classList.toggle('warning', !videoCapabilities.available);
+  }
+  if (encoderSelect) {
+    encoderSelect.innerHTML = '';
+    if (videoCapabilities.available) {
+      var autoOption = document.createElement('option');
+      autoOption.value = 'auto';
+      autoOption.textContent = localizeUiText('自动（按能力选择）');
+      encoderSelect.appendChild(autoOption);
+      (videoCapabilities.encoders || []).forEach(function(encoder) {
+        if (!encoder || !encoder.id) return;
+        var option = document.createElement('option');
+        option.value = encoder.id;
+        option.textContent = encoder.label || encoder.id;
+        encoderSelect.appendChild(option);
+      });
+      if (currentVideoOptions.encoder !== 'auto' && !window.SizqoVideo.findEncoder(videoCapabilities, currentVideoOptions.encoder)) {
+        var missing = document.createElement('option');
+        missing.value = currentVideoOptions.encoder;
+        missing.textContent = currentVideoOptions.encoder + localizeUiText('（当前运行时不可用）');
+        missing.disabled = true;
+        missing.selected = true;
+        encoderSelect.appendChild(missing);
+      }
+    } else {
+      var unavailable = document.createElement('option');
+      unavailable.value = 'auto';
+      unavailable.textContent = localizeUiText('当前运行时不支持视频编码');
+      unavailable.disabled = true;
+      encoderSelect.appendChild(unavailable);
+    }
+  }
+  if (presetSelect) {
+    presetSelect.innerHTML = '';
+    (videoPresets || []).forEach(function(preset) {
+      var id = window.SizqoVideo.presetId(preset);
+      if (!id) return;
+      var option = document.createElement('option');
+      option.value = id;
+      option.textContent = window.SizqoVideo.presetLabel(preset) + (preset.directOnly ? localizeUiText('（仅 Direct）') : '');
+      option.disabled = preset.available === false || (preset.directOnly === true && videoCapabilities.backend !== 'ffmpeg') || videoCapabilities.available !== true;
+      presetSelect.appendChild(option);
+    });
+    if (!videoPresets.length) {
+      var unavailablePreset = document.createElement('option');
+      unavailablePreset.value = 'balanced';
+      unavailablePreset.textContent = localizeUiText('视频预设不可用');
+      unavailablePreset.disabled = true;
+      presetSelect.appendChild(unavailablePreset);
+    }
+  }
+  if (encoderSelect && currentVideoOptions.encoder) encoderSelect.value = currentVideoOptions.encoder;
+  if (presetSelect && selectedVideoPresetId) presetSelect.value = selectedVideoPresetId;
+  syncVideoSettingsControls();
+}
+
+async function loadVideoCapabilities() {
+  var results = await Promise.allSettled([invoke('get_video_capabilities'), invoke('get_video_presets')]);
+  if (results[0].status === 'fulfilled' && results[0].value) videoCapabilities = results[0].value;
+  else videoCapabilities = { backend: 'unavailable', available: false, reason: results[0].reason && (results[0].reason.message || String(results[0].reason)) || localizeUiText('视频能力探测失败'), encoders: [], muxers: [] };
+  videoPresets = results[1].status === 'fulfilled' && Array.isArray(results[1].value) ? results[1].value : [];
+  var stored = null;
+  try { stored = JSON.parse(localStorage.getItem('sizqo-video-settings') || 'null'); } catch (_) {}
+  if (!stored && videoCapabilities.available) {
+    var balanced = videoPresets.find(function(preset) { return window.SizqoVideo.presetId(preset) === 'balanced' && preset.options; });
+    if (balanced) {
+      selectedVideoPresetId = 'balanced';
+      applyVideoOptions(balanced.options);
+    }
+  }
+  renderVideoCapabilities();
+  updateMediaWorkspace();
+}
+
+async function selectVideoOutputDir() {
+  try {
+    var dirs = await invoke('select_output_dir');
+    if (!dirs || !dirs.length) return false;
+    videoOutputDir = dirs[0];
+    var display = document.getElementById('videoOutputDirDisplay');
+    if (display) { display.textContent = videoOutputDir; display.title = videoOutputDir; }
+    saveVideoSettings();
+    return true;
+  } catch (error) {
+    showToast(localizeUiText('无法选择视频输出目录: ') + (error.message || error));
+    return false;
+  }
+}
+
+function bindVideoSettings() {
+  var presetSelect = document.getElementById('videoPreset');
+  if (presetSelect) presetSelect.addEventListener('change', function() {
+    if (!applyVideoPreset(presetSelect.value)) {
+      showToast(localizeUiText('所选视频预设当前不可用'));
+      presetSelect.value = selectedVideoPresetId;
+    }
+  });
+  ['videoEncoder', 'videoSpeed', 'videoMode', 'videoCrf', 'videoBitrate', 'videoTargetMiB',
+    'videoResolution', 'videoResolutionCustom', 'videoFrameRate', 'videoAudioPolicy', 'videoSubtitlePolicy',
+    'videoMetadataPolicy', 'videoOutputMode', 'videoOutputSuffix', 'videoContainer', 'videoThreads', 'videoAllowLarger']
+    .forEach(function(id) {
+      var element = document.getElementById(id);
+      if (!element) return;
+      element.addEventListener('change', function() { saveVideoSettings(); });
+      if (['videoOutputSuffix', 'videoCrf', 'videoBitrate', 'videoTargetMiB', 'videoResolutionCustom', 'videoThreads'].includes(id)) {
+        element.addEventListener('input', saveVideoSettings);
+      }
+    });
+}
+
+async function validateVideoBatch(paths, options) {
+  if (!videoCapabilities.available) return { valid: false, errors: [videoCapabilities.reason || localizeUiText('视频编码当前不可用')] };
+  for (var i = 0; i < paths.length; i++) {
+    var item = queueItems.get(paths[i]);
+    if (!item || item.mediaKind !== 'video') continue;
+    var local = window.SizqoVideo.validateOptions(options, item.videoProbe, videoCapabilities);
+    if (!local.valid) return local;
+    try {
+      var verdict = await invoke('validate_video_options', { options: options, probe: item.videoProbe });
+      if (verdict === false || (verdict && verdict.valid === false)) {
+        return { valid: false, errors: verdict && verdict.errors && verdict.errors.length ? verdict.errors : [localizeUiText('该视频与当前设置不兼容')], warnings: verdict && verdict.warnings || [] };
+      }
+    } catch (error) {
+      return { valid: false, errors: [error.message || localizeUiText('视频参数校验失败')] };
+    }
+  }
+  return { valid: true, errors: [], warnings: [] };
+}
+
+function renderVideoQueueRows() {
+  files.forEach(function(filePath) {
+    var item = queueItems.get(filePath);
+    if (item && item.mediaKind === 'video') paintQueueRow(filePath);
+  });
 }
 
 function openSystemConversionInfo() {
@@ -416,17 +710,45 @@ function appendUniquePaths(target, paths) {
   return result;
 }
 
-function mergeQueueFiles(newFiles) {
+function createMediaTaskId() {
+  if (typeof mediaTaskSeq === 'number') mediaTaskSeq += 1;
+  if (window.crypto && typeof window.crypto.randomUUID === 'function') return window.crypto.randomUUID();
+  return 'task-' + Date.now() + '-' + (typeof mediaTaskSeq === 'number' ? mediaTaskSeq : Math.random().toString(36).slice(2));
+}
+
+function normalizedMediaKind(value) {
+  var kind = String(value || '').toLowerCase();
+  if (kind === 'video') return 'video';
+  if (kind === 'image') return 'image';
+  return null;
+}
+
+function mergeQueueMedia(records) {
   var known = new Set(files);
   var added = [];
-  uniqueFilePaths(newFiles).forEach(function(filePath) {
+  var accepted = new Map();
+  (records || []).forEach(function(record) {
+    if (!record || typeof record !== 'object') return;
+    var filePath = typeof record.path === 'string' ? record.path.trim() : '';
+    var mediaKind = normalizedMediaKind(record.mediaKind);
+    if (!filePath || !mediaKind || accepted.has(filePath)) return;
+    accepted.set(filePath, Object.assign({}, record, { path: filePath, mediaKind: mediaKind }));
+  });
+  accepted.forEach(function(record, filePath) {
     if (known.has(filePath)) return;
     known.add(filePath);
     files.push(filePath);
+    var taskId = createMediaTaskId();
     // 重新导入 = 全新的 pending 项：旧的移除记录在这里被覆盖，
     // 不会复活成"已跳过"那种再也压不动的状态。
     queueItems.set(filePath, {
-      path: filePath, state: 'pending', result: null, originalSize: null,
+      id: taskId, taskId: taskId, path: filePath,
+      mediaKind: record.mediaKind, state: 'pending', result: null,
+      originalSize: Number.isFinite(Number(record.size)) ? Number(record.size) : null,
+      videoProbe: record.videoProbe || null,
+      probeWarning: record.warning || null,
+      probeWarnings: Array.isArray(record.warnings) ? record.warnings.slice() : [],
+      videoProgress: null, coverUrl: null,
     });
     added.push(filePath);
   });
@@ -440,22 +762,28 @@ function handleFilePaths(filePaths) {
   // Serialize directory expansion and queue commits. This keeps a slow scan
   // from finishing after a later, faster scan and overwriting the queue.
   pendingImports = pendingImports.then(async function() {
-    var expanded;
+    var probed;
     try {
-      expanded = await invoke('expand_image_files', { filePaths: incoming });
+      // One backend probe expands directories and identifies media from contents.
+      // The image-only expansion path must never receive video files.
+      probed = await invoke('probe_media', { paths: incoming });
     } catch (e) {
-      console.error('Image expansion failed:', e);
-      showToast(localizeUiText('读取图片失败，请重试'));
+      console.error('Media probe failed:', e);
+      showToast(localizeUiText('媒体分析失败，请重试'));
       return [];
     }
 
-    expanded = uniqueFilePaths(expanded);
-    if (expanded.length === 0) {
-      showToast(localizeUiText('文件夹中没有找到可压缩的图片'));
+    var mediaRecords = Array.isArray(probed) ? probed : [];
+    var supportedRecords = mediaRecords.filter(function(record) {
+      return record && normalizedMediaKind(record.mediaKind);
+    });
+    if (supportedRecords.length === 0) {
+      var firstWarning = mediaRecords.find(function(record) { return record && record.warning; });
+      showToast(firstWarning ? firstWarning.warning : localizeUiText('没有找到可处理的图片或视频'));
       return [];
     }
 
-    var added = mergeQueueFiles(expanded);
+    var added = mergeQueueMedia(supportedRecords);
     inputPaths = appendUniquePaths(inputPaths, incoming);
 
     var queuePanel = document.getElementById('queuePanel');
@@ -464,13 +792,21 @@ function handleFilePaths(filePaths) {
     resultsPanel.style.display = 'none';
     updateQueueSummary();
     renderFileQueue();
+    if (typeof updateMediaWorkspace === 'function') updateMediaWorkspace();
+    added.forEach(function(filePath) {
+      var item = queueItems.get(filePath);
+      if (item && item.mediaKind === 'video' && item.videoProbe) queueVideoCover(item);
+    });
     var container = document.querySelector('.container');
     if (container) container.scrollTop = 0;
 
     if (added.length === 0) {
-      showToast(localizeUiText('所选图片已在队列中'));
+      showToast(localizeUiText('所选媒体已在队列中'));
       return added;
     }
+
+    var unsupported = mediaRecords.filter(function(record) { return record && record.warning && !normalizedMediaKind(record.mediaKind); });
+    if (unsupported.length > 0) showToast(unsupported[0].warning);
 
     var ac = document.getElementById('autoCompress');
     if (ac && ac.checked) {
@@ -483,7 +819,7 @@ function handleFilePaths(filePaths) {
     return added;
   }).catch(function(error) {
     console.error('Queue import failed:', error);
-    showToast(localizeUiText('添加图片失败，请重试'));
+    showToast(localizeUiText('添加媒体失败，请重试'));
     return [];
   });
   return pendingImports;
@@ -494,6 +830,60 @@ var fileRows = {};
 var queueSortDescending = false;
 var pendingImports = Promise.resolve();
 var queueRevision = 0;
+
+function getRunnablePendingPaths(requestedPaths) {
+  var requested = getPendingQueuePaths(requestedPaths);
+  var filter = typeof mediaFilter === 'string' ? mediaFilter : 'all';
+  var canVideo = typeof videoCapabilities === 'undefined' || videoCapabilities.available === true;
+  return requested.filter(function(filePath) {
+    var item = queueItems.get(filePath);
+    if (filter !== 'all' && item && item.mediaKind && item.mediaKind !== filter) return false;
+    return !item || item.mediaKind !== 'video' || canVideo;
+  });
+}
+
+function setMediaFilter(filter) {
+  mediaFilter = ['all', 'image', 'video'].includes(filter) ? filter : 'all';
+  showView('main');
+}
+
+function setHistoryFilter(filter) {
+  historyFilter = ['all', 'image', 'video'].includes(filter) ? filter : 'all';
+  renderHistory();
+}
+
+function updateMediaNavigation() {
+  document.querySelectorAll('[data-media-view]').forEach(function(button) {
+    var selected = currentView === 'history'
+      ? button.dataset.mediaView === 'history'
+      : button.dataset.mediaView === mediaFilter;
+    button.classList.toggle('active', selected);
+  });
+  document.querySelectorAll('[data-history-filter]').forEach(function(button) {
+    button.classList.toggle('active', button.dataset.historyFilter === historyFilter);
+  });
+}
+
+function updateMediaWorkspace() {
+  var imageCount = files.filter(function(filePath) {
+    var item = queueItems.get(filePath);
+    return !item || item.mediaKind !== 'video';
+  }).length;
+  var videoCount = files.filter(function(filePath) {
+    var item = queueItems.get(filePath);
+    return item && item.mediaKind === 'video';
+  }).length;
+  var showImageSettings = mediaFilter === 'image'
+    || (mediaFilter === 'all' && (imageCount > 0 || videoCount === 0));
+  var showVideoSettings = mediaFilter === 'video' || (mediaFilter === 'all' && videoCount > 0);
+  if (settingsPanel) settingsPanel.style.display = showImageSettings ? 'block' : 'none';
+  if (videoSettingsPanel) videoSettingsPanel.style.display = showVideoSettings ? 'block' : 'none';
+  var queuePanel = document.getElementById('queuePanel');
+  if (queuePanel) queuePanel.style.display = files.length > 0 ? 'block' : 'none';
+  updateMediaNavigation();
+  applyQueueView();
+  renderStartButton();
+}
 
 // ─── 队列状态（唯一真相，DOM 只能照着它画）───────────────────────
 // 这一段是"这个文件还需不需要处理"的**唯一**判据，前端测试直接切这段真实代码来跑。
@@ -635,6 +1025,7 @@ function applyQueueView() {
   var sort = document.getElementById('queueSortKey');
   var key = sort ? sort.value : 'import';
   var direction = document.getElementById('queueSortDirection');
+  var mediaView = typeof mediaFilter === 'string' ? mediaFilter : 'all';
   if (direction) {
     direction.innerHTML = iconMarkup(queueSortDescending ? 'sort-desc' : 'sort-asc', true) + (queueSortDescending ? localizeUiText(' 降序') : localizeUiText(' 升序'));
     direction.setAttribute('aria-label', queueSortDescending ? localizeUiText('当前降序，点击切换升序') : localizeUiText('当前升序，点击切换降序'));
@@ -668,7 +1059,9 @@ function applyQueueView() {
     // 「只看失败」也按 queueItems 判，不按 DOM class：类名只是画出来的结果，
     // 拿它当判据，一旦某处忘了同步 class，筛出来的东西就是错的。
     var failedRow = queueState(file) === 'failed';
-    fileRows[file].hidden = !files.includes(file) || (failedOnly && !failedRow);
+    var item = queueItems.get(file);
+    var mediaVisible = mediaView === 'all' || !item || !item.mediaKind || item.mediaKind === mediaView;
+    fileRows[file].hidden = !files.includes(file) || !mediaVisible || (failedOnly && !failedRow);
   });
   entries.forEach(function(entry, index) {
     if (!entry.row) return;
@@ -749,6 +1142,11 @@ function paintQueueRow(filePath) {
   }
   if (actions) actions.innerHTML = '';
 
+  if (item.mediaKind === 'video') {
+    paintVideoQueueRow(filePath, row, item);
+    return;
+  }
+
   var result = item.result;
   if (state === 'done' && result) {
     if (icon) icon.innerHTML = iconMarkup('check', true);
@@ -807,7 +1205,10 @@ function appendErrorIcon(statusEl, result) {
 
 function createQueueRow(filePath) {
   var row = document.createElement('div');
-  row.className = 'file-queue-item';
+  var item = queueItems.get(filePath);
+  var isVideo = !!(item && item.mediaKind === 'video');
+  row.className = 'file-queue-item' + (isVideo ? ' video-queue-item' : '');
+  row.dataset.mediaKind = isVideo ? 'video' : 'image';
   row.dataset.file = filePath;
   var name = basename(filePath);
   row.innerHTML =
@@ -817,7 +1218,7 @@ function createQueueRow(filePath) {
     localizeUiText('<span class="queue-item-status">等待中</span>') +
     '<span class="queue-item-actions"></span>' +
     localizeUiText('<button class="queue-item-remove" title="移除">') + iconMarkup('close', true) + '</button>' +
-    '<div class="progress-file-bar"></div>';
+    (isVideo ? '<span class="video-task-meta"></span><span class="video-task-progress"></span>' : '<div class="progress-file-bar"></div>');
   var nameEl = row.querySelector('.queue-item-name');
   if (nameEl) nameEl.textContent = name;
   var rmBtn = row.querySelector('.queue-item-remove');
@@ -827,6 +1228,387 @@ function createQueueRow(filePath) {
   });
   paintQueueRow(filePath);
   return row;
+}
+
+function videoAudioSummary(probe) {
+  var streams = probe && Array.isArray(probe.streams) ? probe.streams : [];
+  var audio = streams.filter(function(stream) { return stream && (stream.codecType === 'audio' || stream.codec_type === 'audio'); });
+  if (!audio.length) return localizeUiText('无音轨');
+  var names = audio.map(function(stream) { return stream.codecName || stream.codec_name || 'audio'; });
+  return audio.length + localizeUiText(' 条音轨') + ' · ' + Array.from(new Set(names)).join('/');
+}
+
+function videoWarningText(item) {
+  var warnings = (item.probeWarnings || []).concat(item.probeWarning ? [item.probeWarning] : []);
+  var hdr = item.videoProbe && item.videoProbe.hdrKind;
+  if (hdr && String(hdr).toLowerCase() !== 'sdr' && String(hdr).toLowerCase() !== 'none') {
+    warnings.unshift(localizeUiText('检测到 ') + hdr + localizeUiText('；须确认 HDR 色彩和动态元数据保真'));
+  }
+  if (!videoCapabilities.available && videoCapabilities.reason) warnings.unshift(videoCapabilities.reason);
+  return Array.from(new Set(warnings.filter(Boolean))).join(' · ');
+}
+
+function videoProgressText(item) {
+  var progress = item.videoProgress;
+  if (!progress) {
+    var estimate = window.SizqoVideo.estimateOutputBytes(item.videoProbe, currentVideoOptions);
+    if (estimate) return localizeUiText('预计输出约 ') + formatBytes(estimate.bytes) + localizeUiText('（估算）');
+    return localizeUiText('尚无可靠体积估算');
+  }
+  var labels = { queued: '排队中', starting: '准备中', encoding: '正在编码', completed: '已完成', failed: '失败', cancelled: '已取消', deferred: '等待下一轮', skippedLarger: '体积更大，已跳过' };
+  var parts = [localizeUiText(labels[progress.stage] || '处理中')];
+  if (Number.isFinite(progress.fraction)) parts.push(Math.round(Math.max(0, Math.min(1, progress.fraction)) * 100) + '%');
+  if (progress.speed) parts.push(String(progress.speed));
+  if (Number.isFinite(progress.fps)) parts.push(progress.fps.toFixed(1) + ' fps');
+  if (Number.isFinite(progress.etaSeconds) && progress.etaSeconds >= 0) {
+    parts.push(localizeUiText('剩余 ') + window.SizqoVideo.formatDurationUs(progress.etaSeconds * 1000000));
+  }
+  return parts.join(' · ');
+}
+
+function paintVideoQueueRow(filePath, row, item) {
+  var icon = row.querySelector('.queue-item-icon');
+  var size = row.querySelector('.queue-item-size');
+  var status = row.querySelector('.queue-item-status');
+  var meta = row.querySelector('.video-task-meta');
+  var progressEl = row.querySelector('.video-task-progress');
+  var remove = row.querySelector('.queue-item-remove');
+  var actions = row.querySelector('.queue-item-actions');
+  if (remove) remove.style.display = item.state === 'pending' ? '' : 'none';
+  if (size) {
+    size.textContent = item.result && item.result.success
+      ? formatBytes(item.result.originalBytes) + ' → ' + formatBytes(item.result.outputBytes)
+      : (item.originalSize ? formatBytes(item.originalSize) : '');
+  }
+
+  var summary = window.SizqoVideo.videoSummary(item.videoProbe || {});
+  var hdr = item.videoProbe && item.videoProbe.hdrKind;
+  var color = hdr && String(hdr).toLowerCase() !== 'none' ? hdr : localizeUiText('SDR');
+  if (meta) {
+    var details = [summary.duration, summary.dimensions, summary.frameRate, color, summary.codec, videoAudioSummary(item.videoProbe)];
+    meta.textContent = details.join(' · ');
+    var warning = videoWarningText(item);
+    meta.title = details.join('\n') + (warning ? '\n' + warning : '');
+    meta.classList.toggle('video-task-warning', !!warning);
+  }
+  if (progressEl) progressEl.textContent = videoProgressText(item);
+  if (status) {
+    status.textContent = '';
+    if (item.state === 'running') status.textContent = localizeUiText(item.videoProgress && item.videoProgress.stage === 'starting' ? '准备中' : '编码中');
+    else if (item.state === 'done' && item.result && item.result.skippedLarger) status.textContent = localizeUiText('已跳过');
+    else if (item.state === 'done' && item.result && item.result.success && Number.isFinite(item.result.savings)) {
+      status.textContent = (item.result.savings >= 0 ? '-' : '+') + Math.abs(item.result.savings).toFixed(1) + '%';
+    } else if (item.state === 'failed') status.textContent = localizeUiText('失败');
+    else if (item.state === 'restored') status.textContent = localizeUiText('已恢复');
+    else if (item.state === 'removed') status.textContent = localizeUiText('已移除');
+    else status.textContent = compressionPaused ? localizeUiText('已暂停') : localizeUiText('等待中');
+  }
+  if (icon) {
+    if (item.coverUrl) {
+      icon.innerHTML = '<img alt="" draggable="false">';
+      icon.querySelector('img').src = item.coverUrl;
+    } else {
+      var iconName = item.state === 'done' && item.result && item.result.skippedLarger ? 'warning'
+        : item.state === 'done' ? 'check' : item.state === 'failed' ? 'error'
+        : item.state === 'restored' ? 'restore' : item.state === 'removed' ? 'minus' : 'queue';
+      icon.innerHTML = item.state === 'running' ? progressSpinnerMarkup() : iconMarkup(iconName, true);
+    }
+  }
+  if (!actions) return;
+  actions.innerHTML = '';
+  if (item.state === 'running') {
+    var cancelButton = appendVideoAction(actions, 'cancel', item.cancelRequested ? localizeUiText('正在取消…') : localizeUiText('取消当前视频'), 'stop', function() { cancelCurrentVideo(item.taskId); });
+    cancelButton.disabled = !!item.cancelRequested;
+  } else if (item.state === 'done' && item.result && item.result.success) {
+    var result = item.result;
+    var original = result.outputMode === 'replace' ? result.backupPath : result.sourcePath;
+    if (original) appendVideoAction(actions, 'play-original', localizeUiText('播放原视频'), 'play', function() { openMediaFile(original); });
+    if (result.outputPath) appendVideoAction(actions, 'play-output', localizeUiText('播放输出视频'), 'play', function() { openMediaFile(result.outputPath); });
+    if (original && result.outputPath) appendVideoAction(actions, 'compare', localizeUiText('同帧对比'), 'compare', function() { openVideoCompareForResult(result); });
+    appendVideoAction(actions, 'finder', localizeUiText('在访达中显示'), 'finder', function() { openInFinder(filePath); });
+    appendVideoAction(actions, 'log', localizeUiText('查看日志'), 'copy', function() { copyVideoLog(result); });
+    var canUndo = result.outputMode === 'replace' ? !!result.backupPath : !!result.outputPath;
+    if (result.historyId && canUndo) appendVideoAction(actions, 'restore',
+      localizeUiText(result.outputMode === 'replace' ? '恢复原视频' : '删除这次压缩结果'),
+      result.outputMode === 'replace' ? 'restore' : 'trash', function() { restoreVideoResult(result); });
+  } else if (item.state === 'failed') {
+    appendVideoAction(actions, 'retry', localizeUiText('重试'), 'recompress', function() { compressOneFile(filePath); });
+    if (item.result) appendVideoAction(actions, 'log', localizeUiText('查看日志'), 'copy', function() { copyVideoLog(item.result); });
+  } else if (item.state === 'done' && item.result && item.result.skippedLarger) {
+    appendVideoAction(actions, 'log', localizeUiText('查看日志'), 'copy', function() { copyVideoLog(item.result); });
+  }
+}
+
+function appendVideoAction(actions, action, title, icon, callback) {
+  var button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'queue-action-btn' + (action === 'cancel' ? ' danger' : '');
+  button.title = title;
+  button.setAttribute('aria-label', title);
+  button.innerHTML = iconMarkup(icon, true);
+  button.addEventListener('click', function(event) { event.stopPropagation(); callback(); });
+  actions.appendChild(button);
+  return button;
+}
+
+function queueVideoCover(item) {
+  if (!item || item.mediaKind !== 'video' || item.coverRequested) return;
+  item.coverRequested = true;
+  videoCoverQueue.push(item);
+  if (!videoCoverBusy) drainVideoCoverQueue();
+}
+
+async function drainVideoCoverQueue() {
+  videoCoverBusy = true;
+  while (videoCoverQueue.length) {
+    var item = videoCoverQueue.shift();
+    if (!item || queueItems.get(item.path) !== item) continue;
+    try {
+      var frame = await invoke('preview_video_frame', { path: item.path, timeUs: 0 });
+      var dataUrl = typeof frame === 'string' ? frame : frame && (frame.dataUrl || frame.frame);
+      if (typeof dataUrl === 'string' && dataUrl.startsWith('data:image/')) {
+        item.coverUrl = dataUrl;
+        paintQueueRow(item.path);
+      }
+    } catch (_) { /* A missing thumbnail never blocks importing or encoding. */ }
+  }
+  videoCoverBusy = false;
+}
+
+async function openMediaFile(filePath) {
+  if (!filePath) return;
+  try { await invoke('open_media_file', { path: filePath }); }
+  catch (error) { showToast(localizeUiText('无法打开媒体文件: ') + (error.message || error)); }
+}
+
+async function cancelCurrentVideo(taskId) {
+  if (!taskId || !executionSession) return;
+  var target = null;
+  queueItems.forEach(function(item) { if (item && item.taskId === taskId) target = item; });
+  if (!target || target.state !== 'running' || target.cancelRequested) return;
+  target.cancelRequested = true;
+  paintQueueRow(target.path);
+  try {
+    await invoke('cancel_video_task', { taskId: taskId, sessionId: executionSession.id });
+  } catch (error) {
+    target.cancelRequested = false;
+    paintQueueRow(target.path);
+    showToast(localizeUiText('取消视频失败: ') + (error.message || error));
+  }
+}
+
+async function restoreVideoResult(result, force) {
+  if (!result || !result.historyId) return;
+  if (result.outputMode !== 'replace' && !confirm(localizeUiText('删除这次压缩结果？\n将删除 ') + (result.outputPath || '')
+    + localizeUiText('，并移除这条历史记录。原图未被覆盖，不受影响。'))) return;
+  var outcome;
+  try { outcome = await invoke('restore_history_entry', { historyId: result.historyId, force: !!force }); }
+  catch (error) { showToast(localizeUiText('恢复失败: ') + (error.message || error)); return; }
+  if (outcome.conflict) {
+    if (!confirm(RESTORE_CONFLICT_TEXT)) return;
+    await restoreVideoResult(result, true);
+    return;
+  }
+  if (!outcome.success) { showToast(outcome.error || localizeUiText('恢复失败')); return; }
+  showToast(result.outputMode === 'replace'
+    ? localizeUiText('已恢复原视频: ') + basename(result.sourcePath)
+    : localizeUiText('已删除这次压缩结果: ') + basename(result.outputPath));
+  afterRestore(outcome.filePath || result.sourcePath);
+}
+
+function copyVideoLog(result) {
+  if (!result) return;
+  var options = result.videoOptions || result.compressOptions || {};
+  var lines = [
+    '=== Sizqo video task ===',
+    'source: ' + (result.sourcePath || ''),
+    'output: ' + (result.outputPath || ''),
+    'status: ' + (result.skippedLarger ? 'skippedLarger' : result.success ? 'success' : 'failed'),
+    'reason: ' + (result.reason || ''),
+    'size: ' + (result.originalBytes || 0) + ' -> ' + (result.outputBytes || 0) + ' bytes',
+    'savings: ' + (Number.isFinite(result.savings) ? result.savings.toFixed(2) + '%' : 'unknown'),
+    'elapsedMs: ' + (result.elapsedMs == null ? 'unknown' : result.elapsedMs),
+    'encoderActual: ' + (result.encoderActual || 'unknown'),
+    'backendActual: ' + (result.backendActual || 'unknown'),
+    'options: ' + JSON.stringify(options),
+  ];
+  (result.warnings || []).forEach(function(warning) { lines.push('warning: ' + warning); });
+  if (result.diagnosticsLogPath) lines.push('diagnosticsLogPath: ' + result.diagnosticsLogPath);
+  copyTextToClipboard(lines.join('\n'));
+  showToast(localizeUiText('视频日志已复制到剪贴板'));
+}
+
+function openVideoCompareForResult(result) {
+  if (!result) return;
+  var originalPath = result.outputMode === 'replace' ? result.backupPath : result.sourcePath;
+  if (!originalPath || !result.outputPath) {
+    showToast(localizeUiText('原视频或压缩结果已不存在'));
+    return;
+  }
+  openVideoCompare(originalPath, result.outputPath, result.videoProbe || null);
+}
+
+function findProbedVideo(records, path) {
+  var record = (records || []).find(function(item) { return item && item.path === path && item.mediaKind === 'video'; });
+  return record && record.videoProbe || null;
+}
+
+async function openVideoCompare(sourcePath, outputPath, sourceProbeHint) {
+  if (!sourcePath || !outputPath) return;
+  var backdrop = document.getElementById('videoCompareBackdrop');
+  var dialog = document.getElementById('videoCompareDialog');
+  var message = document.getElementById('videoCompareMessage');
+  if (!backdrop || !dialog) return;
+  var state = {
+    sourcePath: sourcePath, outputPath: outputPath, sourceProbe: sourceProbeHint || null,
+    outputProbe: null, durationUs: 0, timeUs: 0, split: 50, zoom: 1, panX: 0, panY: 0,
+    requestId: 0, timer: null, drag: null,
+  };
+  videoCompareState = state;
+  backdrop.style.display = 'block';
+  dialog.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+  if (message) { message.hidden = false; message.textContent = localizeUiText('正在读取视频信息…'); }
+  var sourceLabel = document.getElementById('videoCompareSourceLabel');
+  var outputLabel = document.getElementById('videoCompareOutputLabel');
+  if (sourceLabel) sourceLabel.textContent = localizeUiText('原视频: ') + basename(sourcePath);
+  if (outputLabel) outputLabel.textContent = localizeUiText('输出视频: ') + basename(outputPath);
+  try {
+    var records = await invoke('probe_media', { paths: [sourcePath, outputPath] });
+    if (videoCompareState !== state) return;
+    state.sourceProbe = findProbedVideo(records, sourcePath) || state.sourceProbe;
+    state.outputProbe = findProbedVideo(records, outputPath);
+    var sourceDuration = Number(state.sourceProbe && state.sourceProbe.durationUs) || 0;
+    var outputDuration = Number(state.outputProbe && state.outputProbe.durationUs) || 0;
+    state.durationUs = Math.min(sourceDuration, outputDuration);
+    if (!state.sourceProbe || !state.outputProbe || state.durationUs <= 0) throw new Error(localizeUiText('无法读取两段视频的有效时长'));
+    var timeline = document.getElementById('videoCompareTime');
+    if (timeline) { timeline.min = '0'; timeline.max = String(state.durationUs); timeline.value = '0'; }
+    renderVideoCompareMetadata(state);
+    setVideoCompareSplit(50);
+    setVideoCompareZoom(1);
+    await requestVideoCompareFrames(state);
+  } catch (error) {
+    if (videoCompareState === state && message) {
+      message.hidden = false;
+      message.textContent = (error && error.message) || localizeUiText('无法生成同帧预览');
+    }
+  }
+}
+
+function renderVideoCompareMetadata(state) {
+  var target = document.getElementById('videoCompareMetadata');
+  if (!target) return;
+  var source = state.sourceProbe || {};
+  var output = state.outputProbe || {};
+  var sourceSummary = window.SizqoVideo.videoSummary(source);
+  var outputSummary = window.SizqoVideo.videoSummary(output);
+  var sourceSize = Number(source.sizeBytes) || 0;
+  var outputSize = Number(output.sizeBytes) || 0;
+  target.textContent = sourceSummary.dimensions + ' · ' + formatBytes(sourceSize) + ' · ' + (sourceSummary.codec || '')
+    + '  →  ' + outputSummary.dimensions + ' · ' + formatBytes(outputSize) + ' · ' + (outputSummary.codec || '');
+}
+
+function setVideoCompareSplit(percent) {
+  if (!videoCompareState) return;
+  videoCompareState.split = Math.max(0, Math.min(100, Number(percent) || 0));
+  var stage = document.getElementById('videoCompareStage');
+  if (stage) stage.style.setProperty('--video-compare-split', videoCompareState.split + '%');
+}
+
+function setVideoCompareZoom(value) {
+  if (!videoCompareState) return;
+  videoCompareState.zoom = Math.max(.5, Math.min(2.5, Number(value) || 1));
+  var stage = document.getElementById('videoCompareStage');
+  if (stage) stage.style.setProperty('--video-compare-zoom', String(videoCompareState.zoom));
+  var label = document.getElementById('videoCompareZoomLabel');
+  if (label) label.textContent = Math.round(videoCompareState.zoom * 100) + '%';
+}
+
+function requestVideoCompareFrames(state) {
+  if (!state || videoCompareState !== state) return Promise.resolve();
+  state.requestId += 1;
+  var requestId = state.requestId;
+  var message = document.getElementById('videoCompareMessage');
+  if (message) { message.hidden = false; message.textContent = localizeUiText('正在解码所选时间点…'); }
+  var label = document.getElementById('videoCompareTimeLabel');
+  if (label) label.textContent = window.SizqoVideo.formatDurationUs(state.timeUs);
+  return invoke('compare_video_frames', {
+    sourcePath: state.sourcePath, outputPath: state.outputPath, timeUs: state.timeUs,
+  }).then(function(frames) {
+    if (videoCompareState !== state || state.requestId !== requestId) return;
+    var sourceFrame = frames && frames.sourceFrame;
+    var outputFrame = frames && frames.outputFrame;
+    if (typeof sourceFrame !== 'string' || !sourceFrame.startsWith('data:image/')) throw new Error(localizeUiText('原视频帧解码失败'));
+    if (typeof outputFrame !== 'string' || !outputFrame.startsWith('data:image/')) throw new Error(localizeUiText('输出视频帧解码失败'));
+    var sourceImage = document.getElementById('videoCompareSourceFrame');
+    var outputImage = document.getElementById('videoCompareOutputFrame');
+    if (sourceImage) sourceImage.src = sourceFrame;
+    if (outputImage) outputImage.src = outputFrame;
+    if (message) message.hidden = true;
+  }).catch(function(error) {
+    if (videoCompareState !== state || state.requestId !== requestId || !message) return;
+    message.hidden = false;
+    message.textContent = (error && error.message) || localizeUiText('无法生成同帧预览');
+  });
+}
+
+function scheduleVideoCompareFrames() {
+  var state = videoCompareState;
+  if (!state) return;
+  if (state.timer) clearTimeout(state.timer);
+  state.timer = setTimeout(function() { state.timer = null; requestVideoCompareFrames(state); }, 180);
+}
+
+function closeVideoCompare() {
+  if (videoCompareState && videoCompareState.timer) clearTimeout(videoCompareState.timer);
+  videoCompareState = null;
+  var backdrop = document.getElementById('videoCompareBackdrop');
+  var dialog = document.getElementById('videoCompareDialog');
+  if (backdrop) backdrop.style.display = 'none';
+  if (dialog) dialog.style.display = 'none';
+  document.body.style.overflow = '';
+}
+
+function bindVideoCompareControls() {
+  var timeline = document.getElementById('videoCompareTime');
+  if (timeline) timeline.addEventListener('input', function() {
+    if (!videoCompareState) return;
+    videoCompareState.timeUs = Math.max(0, Math.min(videoCompareState.durationUs, Number(timeline.value) || 0));
+    var label = document.getElementById('videoCompareTimeLabel');
+    if (label) label.textContent = window.SizqoVideo.formatDurationUs(videoCompareState.timeUs);
+    scheduleVideoCompareFrames();
+  });
+  var zoom = document.getElementById('videoCompareZoom');
+  if (zoom) zoom.addEventListener('input', function() { setVideoCompareZoom(Number(zoom.value) / 100); });
+  var stage = document.getElementById('videoCompareStage');
+  if (stage) {
+    stage.addEventListener('pointerdown', function(event) {
+      if (!videoCompareState) return;
+      var rect = stage.getBoundingClientRect();
+      if (event.target.closest && event.target.closest('#videoCompareDivider')) {
+        videoCompareState.drag = { type: 'split', rect: rect };
+      } else {
+        videoCompareState.drag = { type: 'pan', x: event.clientX, y: event.clientY, panX: videoCompareState.panX, panY: videoCompareState.panY };
+      }
+      stage.setPointerCapture(event.pointerId);
+    });
+    stage.addEventListener('pointermove', function(event) {
+      var state = videoCompareState;
+      if (!state || !state.drag) return;
+      if (state.drag.type === 'split') {
+        setVideoCompareSplit((event.clientX - state.drag.rect.left) / state.drag.rect.width * 100);
+      } else {
+        state.panX = state.drag.panX + event.clientX - state.drag.x;
+        state.panY = state.drag.panY + event.clientY - state.drag.y;
+        stage.style.setProperty('--video-compare-pan-x', state.panX + 'px');
+        stage.style.setProperty('--video-compare-pan-y', state.panY + 'px');
+      }
+    });
+    ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(function(name) {
+      stage.addEventListener(name, function() { if (videoCompareState) videoCompareState.drag = null; });
+    });
+  }
 }
 
 /// 把一个文件移出队列。**只有等待中（还没开始）的可以移**：已经在压的那一行
@@ -897,7 +1679,7 @@ function copyCompressLog(result) {
   var opts = result.compressOptions || {};
   var lines = [];
   lines.push(localizeUiText('版本: ') + BUILD_VARIANT);
-  lines.push(localizeUiText('=== OctoShrink \u538b\u7f29\u65e5\u5fd7 ==='));
+  lines.push(localizeUiText('=== Sizqo \u538b\u7f29\u65e5\u5fd7 ==='));
   lines.push('');
   lines.push(localizeUiText('\u6587\u4ef6: ') + (result.file || ''));
   lines.push(localizeUiText('\u72b6\u6001: ') + (result.success ? localizeUiText('\u6210\u529f') : localizeUiText('\u5931\u8d25')));
@@ -1085,21 +1867,35 @@ async function startCompression(isIncrement) {
 
 async function startCompressionForPaths(isIncrement, requestedPaths) {
   if (isCompressing) return;
-  // 只提交 pending：已经压完的绝不重压，失败的要用户显式点「重试」。
-  var batchPaths = getPendingQueuePaths(requestedPaths);
-  if (batchPaths.length === 0) return;
+  // A media view starts its visible type only; All snapshots every runnable item.
+  var pendingPaths = getPendingQueuePaths(requestedPaths);
+  var batchPaths = getRunnablePendingPaths(requestedPaths);
+  var view = typeof mediaFilter === 'string' ? mediaFilter : 'all';
+  var blockedVideos = pendingPaths.filter(function(path) {
+    var item = queueItems.get(path);
+    return item && item.mediaKind === 'video' && (view === 'all' || view === 'video') && !videoCapabilities.available;
+  });
+  if (batchPaths.length === 0) {
+    if (blockedVideos.length) showToast(videoCapabilities.reason || localizeUiText('此版本当前不支持视频编码'));
+    return;
+  }
+  if (blockedVideos.length) showToast(videoCapabilities.reason || localizeUiText('视频编码不可用；本轮仅处理可运行的图片任务'));
+  var imagePaths = batchPaths.filter(function(path) { var item = queueItems.get(path); return !item || item.mediaKind !== 'video'; });
+  var videoPaths = batchPaths.filter(function(path) { var item = queueItems.get(path); return item && item.mediaKind === 'video'; });
 
   // 先占住批次位（静默）：真正开跑之前还有几步可能提前 return，
   // 那几步里不该亮出"暂停/停止"按钮和「压缩中…」。
   setCompressionState(COMPRESSION_RUNNING, true);
   var runRevision = queueRevision;
 
-  var hasOutputAccess = false;
-  try {
-    hasOutputAccess = await ensureSystemOutputAccess();
-  } catch (error) {
-    console.error('Output access check failed:', error);
-    showToast(localizeUiText('无法确认输出目录，请重试'));
+  var hasOutputAccess = true;
+  if (imagePaths.length > 0 && processingMode === 'system') {
+    try {
+      hasOutputAccess = await ensureSystemOutputAccess();
+    } catch (error) {
+      console.error('Output access check failed:', error);
+      showToast(localizeUiText('无法确认输出目录，请重试'));
+    }
   }
   if (!hasOutputAccess) {
     setCompressionState(COMPRESSION_IDLE, true);
@@ -1115,7 +1911,7 @@ async function startCompressionForPaths(isIncrement, requestedPaths) {
   setCompressionState(COMPRESSION_RUNNING, true);
   currentCompressOptions = null;
 
-  const config = getCurrentCompressionConfig();
+  const config = imagePaths.length > 0 ? getCurrentCompressionConfig() : { options: {}, useSmartIpc: false };
   if (config.error) {
     showToast(config.error);
     setCompressionState(COMPRESSION_IDLE, true);
@@ -1130,7 +1926,33 @@ async function startCompressionForPaths(isIncrement, requestedPaths) {
     return;
   }
 
-  var batchOptions = config.options;
+  imagePaths = batchPaths.filter(function(path) { var item = queueItems.get(path); return !item || item.mediaKind !== 'video'; });
+  videoPaths = batchPaths.filter(function(path) { var item = queueItems.get(path); return item && item.mediaKind === 'video'; });
+  var batchOptions = config.options || {};
+  var videoOptions = videoPaths.length > 0 ? videoOptionsFromControls() : null;
+  if (videoPaths.length > 0) {
+    var videoVerdict = await validateVideoBatch(videoPaths, videoOptions);
+    if (!videoVerdict.valid) {
+      var validationMessage = (videoVerdict.errors || []).join(' · ') || localizeUiText('视频设置无效');
+      var validationNote = document.getElementById('videoValidationNote');
+      if (validationNote) {
+        validationNote.textContent = validationMessage;
+        validationNote.classList.add('visible', 'warning');
+      }
+      showToast(validationMessage);
+      setCompressionState(COMPRESSION_IDLE, true);
+      updateQueueSummary();
+      return;
+    }
+    var warningText = (videoVerdict.warnings || []).join(' · ');
+    var warningNote = document.getElementById('videoValidationNote');
+    if (warningNote) {
+      warningNote.textContent = warningText;
+      warningNote.classList.toggle('visible', !!warningText);
+      warningNote.classList.toggle('warning', !!warningText);
+    }
+  }
+  if (videoOptions) currentVideoOptions = videoOptions;
   currentCompressOptions = batchOptions;
   var session = beginExecutionSession(batchPaths);
   var targetItems = new Map(batchPaths.map(function(filePath) { return [filePath, queueItems.get(filePath)]; }));
@@ -1219,27 +2041,122 @@ async function startCompressionForPaths(isIncrement, requestedPaths) {
     paintQueueRow(file);
   };
 
+  var settledVideoTasks = new Set();
+  const videoProgressHandler = (data) => {
+    if (!data || !executionSession || data.sessionId !== executionSession.id) return;
+    if (runRevision !== queueRevision || data.queueRevision !== runRevision) return;
+    var taskId = data.taskId;
+    if (!taskId) return;
+    var path = null;
+    targetItems.forEach(function(target, targetPath) { if (target.taskId === taskId) path = targetPath; });
+    if (!path || (data.path && data.path !== path)) return;
+    var item = queueItems.get(path);
+    if (!item || item !== targetItems.get(path) || item.taskId !== taskId) return;
+    var stage = data.stage || 'queued';
+    item.videoProgress = Object.assign({}, data, { stage: stage });
+    if (stage === 'starting' || stage === 'encoding') {
+      if (item.state === 'pending') item.state = 'running';
+      if (item.state !== 'running') return;
+      paintQueueRow(path);
+      updateQueueSummary();
+      return;
+    }
+    if (stage === 'completed' || stage === 'failed' || stage === 'skippedLarger') {
+      if (settledVideoTasks.has(taskId)) return;
+      var rawResult = data.result;
+      if (!rawResult) return;
+      if (item.state !== 'running' && !(data.fromSessionResult && item.state === 'pending')) return;
+      settledVideoTasks.add(taskId);
+      if (stage === 'skippedLarger') rawResult = Object.assign({}, rawResult, { stage: 'skippedLarger', success: false, skippedLarger: true });
+      var result = window.SizqoVideo.normalizeResult(rawResult, path, item.videoProbe, videoOptions);
+      result.taskId = taskId;
+      result.historyId = rawResult.historyId || result.historyId || null;
+      result.backupPath = rawResult.backupPath || result.backupPath || null;
+      result.diagnosticsLogPath = rawResult.diagnosticsLogPath || result.diagnosticsLogPath || null;
+      result.videoOptions = videoOptions;
+      result.videoProbe = item.videoProbe;
+      result.compressOptions = videoOptions;
+      item.result = result;
+      item.state = stage === 'failed' || (!result.success && !result.skippedLarger) ? 'failed' : 'done';
+      paintQueueRow(path);
+      updateStats();
+      updateQueueSummary();
+      emitCompareResultsChanged();
+      return;
+    }
+    if (stage === 'cancelled') {
+      if (item.state !== 'running') return;
+      settledVideoTasks.add(taskId);
+      item.result = null;
+      item.videoProgress = null;
+      item.state = 'pending';
+      pendingAutoCompress = false;
+      paintQueueRow(path);
+      updateQueueSummary();
+      showToast(localizeUiText('当前视频已取消，输入文件仍留在队列中'));
+      return;
+    }
+    if (stage === 'deferred') {
+      if (item.state === 'running') return;
+      item.state = 'pending';
+      paintQueueRow(path);
+      updateQueueSummary();
+      return;
+    }
+    paintQueueRow(path);
+  };
+
   var unlisten = function() {};
+  var unlistenVideo = function() {};
 
   try {
     unlisten = await listen('compress-progress', function(event) {
       progressHandler(event.payload);
     });
-    var sessionResult = await invoke(config.useSmartIpc ? 'compress_smart' : 'compress_files', {
-      sessionId: session.id,
-      queueRevision: session.queueRevision,
-      filePaths: batchPaths,
-      options: batchOptions,
-    });
+    var sessionResult;
+    if (videoPaths.length > 0) {
+      unlistenVideo = await listen('video-progress', function(event) { videoProgressHandler(event.payload); });
+      sessionResult = await invoke('start_media_session', {
+        images: imagePaths,
+        videoTasks: videoPaths.map(function(path) { return { taskId: targetItems.get(path).taskId, path: path }; }),
+        imageOptions: batchOptions,
+        videoOptions: videoOptions,
+        sessionId: session.id,
+        queueRevision: session.queueRevision,
+        sourceRoots: inputPaths.slice(),
+        useSmart: !!config.useSmartIpc,
+      });
+    } else {
+      sessionResult = await invoke(config.useSmartIpc ? 'compress_smart' : 'compress_files', {
+        sessionId: session.id,
+        queueRevision: session.queueRevision,
+        filePaths: imagePaths,
+        options: batchOptions,
+      });
+    }
     // 事件是实时路径，返回值是补救路径：某一轮结束了却没有把事件送到时，
     // 靠它把结果补齐（会话号对不上就直接不认）。
-    var results = sessionResult && Array.isArray(sessionResult.results) ? sessionResult.results : [];
+    var resultSessionId = sessionResult && sessionResult.sessionId || session.id;
+    var results = sessionResult && Array.isArray(sessionResult.imageResults)
+      ? sessionResult.imageResults
+      : (sessionResult && Array.isArray(sessionResult.results) ? sessionResult.results : []);
     results.forEach(function(result) {
       progressHandler({
-        sessionId: sessionResult.sessionId,
+        sessionId: resultSessionId,
         queueRevision: session.queueRevision,
         file: result.file,
         status: result.success ? 'completed' : 'failed',
+        result: result,
+        fromSessionResult: true,
+      });
+    });
+    var videoResults = sessionResult && Array.isArray(sessionResult.videoResults) ? sessionResult.videoResults : [];
+    videoResults.forEach(function(result) {
+      videoProgressHandler({
+        sessionId: resultSessionId,
+        queueRevision: session.queueRevision,
+        taskId: result.taskId,
+        stage: result.stage || (result.skippedLarger ? 'skippedLarger' : (result.success ? 'completed' : 'failed')),
         result: result,
         fromSessionResult: true,
       });
@@ -1253,6 +2170,7 @@ async function startCompressionForPaths(isIncrement, requestedPaths) {
     showToast((processingMode === 'system' ? localizeUiText('转换出错: ') : localizeUiText('压缩出错: ')) + (err.message || err));
   } finally {
     try { unlisten(); } catch (e) {}
+    try { unlistenVideo(); } catch (e) {}
     if (executionSession === session) endExecutionSession();
     // 用户按了停止：这一轮就地结束，绝不被"自动压缩"再拉起来跑下一批。
     var stoppedByUser = compressionState === COMPRESSION_STOPPING;
@@ -1260,7 +2178,7 @@ async function startCompressionForPaths(isIncrement, requestedPaths) {
     setPauseButtonVisible(false);
     updateQueueSummary();
     var shouldContinue = !stoppedByUser && pendingAutoCompress
-      && getPendingQueuePaths().length > 0;
+      && getRunnablePendingPaths().length > 0;
     pendingAutoCompress = false;
     if (shouldContinue) {
       startCompression(true);
@@ -1521,6 +2439,11 @@ function stopButtonText(stopping) {
     + (stopping ? localizeUiText('正在停止…') : localizeUiText('停止'));
 }
 
+/// 转圈图标只在这一处拼 HTML：队列行、视频行、进度按钮都从这里拿。
+function progressSpinnerMarkup() {
+  return '<span class="progress-file-spinner"></span>';
+}
+
 /// 队列行的图标 + 文案，一处说了算 —— 不许再散落 `innerHTML = '<span class="spinner">'`。
 /// 入参是**队列状态**（pending / running / done / failed / removed / restored）
 /// 或会话状态（paused / stopping）。停止不改变队列状态：被延后的文件仍然是
@@ -1531,9 +2454,9 @@ function taskStatusMarkup(status) {
       // 会话已经暂停 / 正在停止，但它真的还在跑：照实写「收尾中…」并留着 spinner。
       // 把一张确实在压缩的图假装成停下来，比让它多转一会儿圈更糟。
       if (compressionState === COMPRESSION_PAUSED || compressionState === COMPRESSION_STOPPING) {
-        return { icon: '<span class="progress-file-spinner"></span>', text: localizeUiText('收尾中…') };
+        return { icon: progressSpinnerMarkup(), text: localizeUiText('收尾中…') };
       }
-      return { icon: '<span class="progress-file-spinner"></span>', text: processingActionText('progress') };
+      return { icon: progressSpinnerMarkup(), text: processingActionText('progress') };
     case 'paused':
       // 暂停不用"停住的转圈"：一个静止的圆环看着像卡死，暂停图标才是它的意思。
       return { icon: iconMarkup('pause', true), text: localizeUiText('已暂停') };
@@ -1583,9 +2506,9 @@ function progressButtonMarkup() {
     return iconMarkup('pause', true) + localizeUiText(' 暂停中…');
   }
   if (compressionState === COMPRESSION_STOPPING) {
-    return localizeUiText('<span class="progress-file-spinner"></span> 正在停止…');
+    return progressSpinnerMarkup() + localizeUiText(' 正在停止…');
   }
-  return '<span class="progress-file-spinner"></span> ' + processingActionText('progress');
+  return progressSpinnerMarkup() + ' ' + processingActionText('progress');
 }
 
 function renderPauseControls() {
@@ -1742,6 +2665,7 @@ function historyStatusText(entry) {
 /// `historyRowActions` 逐条一致：按下去不成立的按钮一个都不许出现。
 /// 后缀模式的原图从没被覆盖过，给它「恢复原图」是假的；对等的反悔是删掉产物。
 function historyRowActionDefs(entry) {
+  var isVideo = entry.mediaKind === 'video';
   var isReplace = entry.outputMode === 'replace';
   // 「原图还摸得着吗」按模式判：覆盖模式只有备份算数（源位置此刻躺着的是压缩结果），
   // 后缀 / 目录模式的源文件本身就没被动过。
@@ -1750,12 +2674,15 @@ function historyRowActionDefs(entry) {
   if (entry.outputExists) {
     defs.push({ action: 'save', title: localizeUiText('另存为'), icon: 'save' });
   }
+  var originalPath = isReplace ? (entry.backupExists ? entry.backupPath : null) : (entry.sourceExists ? entry.sourcePath : null);
+  if (isVideo && originalPath) defs.push({ action: 'playOriginal', title: localizeUiText('播放原视频'), icon: 'play' });
+  if (isVideo && entry.outputExists) defs.push({ action: 'playOutput', title: localizeUiText('播放输出视频'), icon: 'play' });
   // 两边都真实存在才比得出差别 —— 备份没了还挂一个「对比」，比的是那张压缩图和它自己。
   if (entry.outputExists && originalAvailable) {
-    defs.push({ action: 'compare', title: localizeUiText('对比查看'), icon: 'compare' });
+    defs.push({ action: 'compare', title: localizeUiText(isVideo ? '同帧对比' : '对比查看'), icon: 'compare' });
   }
   if (canRestoreHistory(entry)) {
-    defs.push({ action: 'restore', title: localizeUiText('恢复原图'), icon: 'restore' });
+    defs.push({ action: 'restore', title: localizeUiText(isVideo ? '恢复原视频' : '恢复原图'), icon: 'restore' });
   } else if (entry.status === 'compressed' && !isReplace && entry.outputExists) {
     defs.push({ action: 'deleteOutput', title: localizeUiText('删除这次压缩结果'), icon: 'trash' });
   }
@@ -1791,6 +2718,18 @@ function openCompareFromHistory(entry) {
     refreshHistory();
     return;
   }
+  if (entry.mediaKind === 'video') {
+    var source = entry.outputMode === 'replace'
+      ? (entry.backupExists ? entry.backupPath : null)
+      : (entry.sourceExists ? entry.sourcePath : null);
+    if (!source || !entry.outputPath) {
+      showToast(localizeUiText('原视频或压缩结果已不存在'));
+      refreshHistory();
+      return;
+    }
+    openVideoCompare(source, entry.outputPath, entry.videoMetadata || null);
+    return;
+  }
   invoke('open_compare_window', {
     payload: { results: [historyCompareResult(entry)], index: 0 },
   }).catch(function(err) {
@@ -1821,7 +2760,7 @@ async function deleteHistoryOutput(entry) {
 function copyHistoryLog(entry) {
   var lines = [];
   lines.push(localizeUiText('版本: ') + BUILD_VARIANT);
-  lines.push(localizeUiText('=== OctoShrink 压缩历史 ==='));
+  lines.push(localizeUiText('=== Sizqo 压缩历史 ==='));
   lines.push('');
   lines.push(localizeUiText('文件: ') + entry.sourcePath);
   lines.push(localizeUiText('时间: ') + historyTime(entry.createdAt));
@@ -1830,6 +2769,11 @@ function copyHistoryLog(entry) {
   lines.push(localizeUiText('--- 压缩结果 ---'));
   lines.push(localizeUiText('输出: ') + (entry.outputPath || entry.sourcePath));
   lines.push(localizeUiText('输出方式: ') + entry.outputMode);
+  if (entry.mediaKind === 'video') {
+    lines.push('mediaKind: video');
+    lines.push('encoder: ' + (entry.algorithm || entry.encoderActual || localizeUiText('(未知)')));
+    lines.push('metadata: ' + JSON.stringify(entry.videoMetadata || {}));
+  }
   if (entry.status === 'recoveryAvailable') {
     lines.push(localizeUiText('明细: 已丢失（这条记录是按原图备份重建出来的）'));
   } else {
@@ -1866,7 +2810,7 @@ function historyRow(entry) {
   name.title = entry.sourcePath;
   var sub = document.createElement('span');
   sub.className = 'history-sub';
-  sub.textContent = dirname(entry.sourcePath) + ' · ' + historyStatusText(entry);
+  sub.textContent = (entry.mediaKind === 'video' ? localizeUiText('视频') + ' · ' : '') + dirname(entry.sourcePath) + ' · ' + historyStatusText(entry);
   main.appendChild(name);
   main.appendChild(sub);
 
@@ -1914,6 +2858,8 @@ function historyRow(entry) {
 /// 这一个服务：后端按 outputMode 决定是写回原图还是删掉产物，前端不自己判断文件该怎么动。
 function runHistoryAction(entry, action) {
   if (action === 'save') { saveHistoryOutput(entry); return; }
+  if (action === 'playOriginal') { openMediaFile(entry.outputMode === 'replace' ? entry.backupPath : entry.sourcePath); return; }
+  if (action === 'playOutput') { openMediaFile(entry.outputPath || entry.sourcePath); return; }
   if (action === 'compare') { openCompareFromHistory(entry); return; }
   if (action === 'restore') { restoreFromHistory(entry); return; }
   if (action === 'deleteOutput') { deleteHistoryOutput(entry); return; }
@@ -1926,11 +2872,18 @@ function renderHistory() {
   var list = document.getElementById('historyList');
   if (!list) return;
   list.innerHTML = '';
-  historyEntries.forEach(function(entry) { list.appendChild(historyRow(entry)); });
+  var visibleEntries = historyEntries.filter(function(entry) {
+    var kind = entry.mediaKind === 'video' ? 'video' : 'image';
+    return historyFilter === 'all' || historyFilter === kind;
+  });
+  visibleEntries.forEach(function(entry) { list.appendChild(historyRow(entry)); });
   var empty = document.getElementById('historyEmpty');
-  if (empty) empty.hidden = historyEntries.length > 0;
+  if (empty) {
+    empty.hidden = visibleEntries.length > 0;
+    empty.textContent = historyEntries.length > 0 ? localizeUiText('此类别还没有压缩记录') : localizeUiText('还没有压缩记录');
+  }
   var meta = document.getElementById('historyMeta');
-  if (meta) meta.textContent = historyEntries.length + localizeUiText(' 条');
+  if (meta) meta.textContent = visibleEntries.length + localizeUiText(' 条');
   // 后端在批次/事务进行中会拒绝清空，这里提前收成不可点，别让用户撞上报错。
   var clearBtn = document.getElementById('historyClearBtn');
   if (clearBtn) {
@@ -1991,8 +2944,8 @@ async function clearHistory() {
   var pendingBackups = historyEntries.filter(function(e) { return e.backupExists; }).length;
   var question = localizeUiText('确定要清空 ') + historyEntries.length + localizeUiText(' 条历史记录吗？\n');
   question += pendingBackups > 0
-    ? localizeUiText('同时立即删除 OctoShrink 保存的 ') + pendingBackups + localizeUiText(' 份原图备份，不必等保留期到期。不会删除你的任何图片文件。')
-    : localizeUiText('OctoShrink 目前没有保存原图备份，这次只清记录。不会删除你的任何图片文件。');
+    ? localizeUiText('同时立即删除 Sizqo 保存的 ') + pendingBackups + localizeUiText(' 份原图备份，不必等保留期到期。不会删除你的任何图片文件。')
+    : localizeUiText('Sizqo 目前没有保存原图备份，这次只清记录。不会删除你的任何图片文件。');
   if (!confirm(question)) return;
   try {
     var removed = await invoke('clear_history');
@@ -2438,7 +3391,7 @@ function updateSettingsSummary() {
 }
 
 function resetSettings() {
-  try { localStorage.removeItem('octoshrink-settings'); } catch(e) {}
+  try { localStorage.removeItem('sizqo-settings'); } catch(e) {}
   location.reload();
 }
 
@@ -2468,12 +3421,12 @@ function saveCompressSettings() {
   var om = document.querySelector('input[name="outputMode"]:checked');
   if (om) data.outputMode = om.value;
   if (outputSuffixInput) data.outputSuffix = outputSuffixInput.value;
-  try { localStorage.setItem('octoshrink-settings', JSON.stringify(data)); } catch(e) {}
+  try { localStorage.setItem('sizqo-settings', JSON.stringify(data)); } catch(e) {}
 }
 
 function loadCompressSettings() {
   var raw;
-  try { raw = localStorage.getItem('octoshrink-settings'); } catch(e) { return; }
+  try { raw = localStorage.getItem('sizqo-settings'); } catch(e) { return; }
   if (!raw) return;
   var data;
   try { data = JSON.parse(raw); } catch(e) { return; }

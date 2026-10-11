@@ -1,4 +1,4 @@
-// OctoShrink - Rust compression engine
+// Sizqo - Rust compression engine
 // Replaces the Node.js engine (sharp/squoosh) with CLI tools + the `image` crate.
 
 use std::fs;

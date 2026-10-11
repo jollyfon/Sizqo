@@ -1,4 +1,4 @@
-// OctoShrink - replace 模式的覆盖事务日志（crash journal）。
+// Sizqo - replace 模式的覆盖事务日志（crash journal）。
 //
 // 为什么需要它：backup 写完、压缩结果覆盖到用户文件上、`history.add` 还没跑 ——
 // 就在这个窗口里崩溃或强杀，App 下次启动将完全不知道发生过这次压缩：
@@ -67,6 +67,16 @@ impl TransactionStore {
         fs::create_dir_all(&self.root).map_err(|e| e.to_string())?;
         let json = serde_json::to_string(txn).map_err(|e| e.to_string())?;
         write_atomic(&self.path_of(&txn.id), json.as_bytes())
+    }
+
+    /// Video replace requires the journal directory entry to be durable before rename.
+    pub fn prepare_durable(&self, txn: &ReplaceTransaction) -> Result<(), String> {
+        self.prepare(txn)?;
+        if let Err(error) = fs::File::open(&self.root).and_then(|f| f.sync_all()) {
+            self.finish(&txn.id);
+            return Err(error.to_string());
+        }
+        Ok(())
     }
 
     /// 事务已完整提交（历史也写成了）：销账。
@@ -164,7 +174,7 @@ pub struct StagedOutput {
 impl StagedOutput {
     pub fn write(target: &Path, bytes: &[u8]) -> Result<Self, String> {
         let parent = target.parent().unwrap_or(Path::new("."));
-        let temp = parent.join(format!(".octoshrink-write-{}.tmp", now_millis()));
+        let temp = parent.join(format!(".sizqo-write-{}.tmp", now_millis()));
         let staged = Self { temp: temp.clone() };
         let outcome = (|| -> Result<(), String> {
             {

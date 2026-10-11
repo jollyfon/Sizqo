@@ -1,5 +1,5 @@
 [default]
-description = "OctoShrink app commands — select, compress, restore, export"
+description = "Sizqo media commands — select, compress, restore, export"
 permissions = [
   "allow-select-files",
   "allow-select-folder",
@@ -33,6 +33,17 @@ permissions = [
   "allow-restore-history-entry",
   "allow-get-app-settings",
   "allow-set-original-retention-days",
+  "allow-probe-media",
+  "allow-get-video-capabilities",
+  "allow-validate-video-options",
+  "allow-get-video-presets",
+  "allow-save-video-preset",
+  "allow-start-video-session",
+  "allow-start-media-session",
+  "allow-cancel-video-task",
+  "allow-preview-video-frame",
+  "allow-compare-video-frames",
+  "allow-open-media-file",
 ]
 
 [[permission]]
@@ -214,3 +225,58 @@ commands.allow = ["get_cpu_resource_settings"]
 identifier = "allow-set-cpu-thread-limit"
 description = "Change the CPU parallelism budget; running jobs finish under the old limit"
 commands.allow = ["set_cpu_thread_limit"]
+
+[[permission]]
+identifier = "allow-probe-media"
+description = "Probe image or video media metadata"
+commands.allow = ["probe_media"]
+
+[[permission]]
+identifier = "allow-get-video-capabilities"
+description = "Read the current video encoder and container capabilities"
+commands.allow = ["get_video_capabilities"]
+
+[[permission]]
+identifier = "allow-validate-video-options"
+description = "Validate video settings against available encoders and source metadata"
+commands.allow = ["validate_video_options"]
+
+[[permission]]
+identifier = "allow-get-video-presets"
+description = "Read supported video presets"
+commands.allow = ["get_video_presets"]
+
+[[permission]]
+identifier = "allow-save-video-preset"
+description = "Save a named video preset"
+commands.allow = ["save_video_preset"]
+
+[[permission]]
+identifier = "allow-start-video-session"
+description = "Start a video compression session"
+commands.allow = ["start_video_session"]
+
+[[permission]]
+identifier = "allow-start-media-session"
+description = "Start a mixed image and video compression session"
+commands.allow = ["start_media_session"]
+
+[[permission]]
+identifier = "allow-cancel-video-task"
+description = "Cancel one running video compression task"
+commands.allow = ["cancel_video_task"]
+
+[[permission]]
+identifier = "allow-preview-video-frame"
+description = "Decode one video frame for preview"
+commands.allow = ["preview_video_frame"]
+
+[[permission]]
+identifier = "allow-compare-video-frames"
+description = "Decode matching video frames for comparison"
+commands.allow = ["compare_video_frames"]
+
+[[permission]]
+identifier = "allow-open-media-file"
+description = "Open a media file with its default application"
+commands.allow = ["open_media_file"]

@@ -1,5 +1,5 @@
 #!/bin/bash
-# OctoShrink 分发管线（构建 + 签名 + 公证 + 装订）
+# Sizqo 分发管线（构建 + 签名 + 公证 + 装订）
 # 镜像已签名公证的 OctoPilot 方案：Team U8U443D7ZL / hardened runtime /
 # disable-library-validation / notarized + stapled / arm64-only。
 #
@@ -9,7 +9,7 @@
 # 环境变量（可选覆盖）：
 #   SIGNING_IDENTITY          指定 codesign 签名身份；默认自动检测 Developer ID Application
 #   NOTARY_PROFILE            notarytool keychain 凭据 profile（推荐：先 notarytool store-credentials）
-#                            默认值 octoshrink-notary（已通过 xcrun notarytool store-credentials 保存在钥匙串）
+#                            默认值 sizqo-notary（已通过 xcrun notarytool store-credentials 保存在钥匙串）
 #   APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID   不用 profile 时的公证凭据
 #   SKIP_BUILD=1              跳过 cargo tauri build，复用已有 .app
 #   VERBOSE=1                 输出签名详情
@@ -18,9 +18,9 @@ set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TAURI_DIR="$PROJECT_DIR/src-tauri"
-APP_NAME="OctoShrink"
+APP_NAME="Sizqo"
 APP="$TAURI_DIR/target/release/bundle/macos/$APP_NAME.app"
-BUNDLE_ID="com.misswell.octoshrink"
+BUNDLE_ID="com.misswell.sizqo"
 ENTITLEMENTS="$TAURI_DIR/entitlements.plist"
 DEFAULT_TEAM_ID="U8U443D7ZL"
 
@@ -52,7 +52,7 @@ fi
   echo "        然后注销/重启，再用 Keychain Access 确认 login 钥匙串可见。" >&2
   echo "" >&2
   echo "  [3] 仍无法定位，可显式传入签名身份名后运行：" >&2
-  echo "      SIGNING_IDENTITY='Developer ID Application: Your Name (U8U443D7ZL)' NOTARY_PROFILE=octoshrink-notary $0" >&2
+  echo "      SIGNING_IDENTITY='Developer ID Application: Your Name (U8U443D7ZL)' NOTARY_PROFILE=sizqo-notary $0" >&2
   echo "" >&2
   exit 2
 }
@@ -93,19 +93,42 @@ for lib in "$SRC_LIB"/*.dylib; do
 done
 ok "$lib_count 个动态库"
 
+# 视频引擎资源：ffmpeg / ffprobe 及其动态库放在 Resources/video/，
+# 运行时由 video::process::command 按 <exe>/../Resources/video/bin 查找。
+if [ -d "$TAURI_DIR/resources/video/bin" ]; then
+  VIDEO_BIN="$RES_DIR/video/bin"
+  VIDEO_LIB="$RES_DIR/video/lib"
+  mkdir -p "$VIDEO_BIN" "$VIDEO_LIB"
+  video_count=0
+  for tool in "$TAURI_DIR/resources/video/bin"/*; do
+    [ -f "$tool" ] || continue
+    cp "$tool" "$VIDEO_BIN/$(basename "$tool")"
+    chmod 755 "$VIDEO_BIN/$(basename "$tool")"
+    video_count=$((video_count+1))
+  done
+  for lib in "$TAURI_DIR/resources/video/lib"/*.dylib; do
+    [ -f "$lib" ] || continue
+    cp "$lib" "$VIDEO_LIB/$(basename "$lib")"
+    chmod 755 "$VIDEO_LIB/$(basename "$lib")"
+  done
+  ok "视频引擎资源：$video_count 个工具"
+else
+  fail "缺少视频引擎资源：$TAURI_DIR/resources/video/bin（先跑 scripts/collect_macos_tools.sh）"
+fi
+
 # ---------- 3. 签名（先叶子后根：dylib → bin → 主程序） ----------
 CS_OPTS=( --force --options runtime --entitlements "$ENTITLEMENTS" --sign "$SIGNING_IDENTITY" )
 [ "${VERBOSE:-0}" = "1" ] && CS_OPTS=( --force --options runtime --entitlements "$ENTITLEMENTS" --sign "$SIGNING_IDENTITY" --verbose=4 )
 
 log "签名内置动态库"
-for lib in "$LIB_DIR"/*.dylib; do
+for lib in "$LIB_DIR"/*.dylib "$RES_DIR/video/lib"/*.dylib; do
   [ -f "$lib" ] || continue
   codesign "${CS_OPTS[@]}" "$lib" >/dev/null 2>&1 || codesign "${CS_OPTS[@]}" "$lib"
   ok "$(basename "$lib")"
 done
 
 log "签名内置 CLI 工具"
-for bin in "$BIN_DIR"/*; do
+for bin in "$BIN_DIR"/* "$RES_DIR/video/bin"/*; do
   [ -f "$bin" ] || continue
   codesign "${CS_OPTS[@]}" "$bin" >/dev/null 2>&1 || codesign "${CS_OPTS[@]}" "$bin"
   ok "$(basename "$bin")"
@@ -123,11 +146,11 @@ ok "$APP_NAME.app 已签名（hardened runtime + entitlements）"
 # ---------- 4. 校验签名 ----------
 log "校验签名与 Gatekeeper"
 codesign --verify --strict --verbose=2 "$APP" 2>&1 | sed 's/^/    /'
-if spctl -a -vvv -t exec "$APP" 2>&1 | tee /tmp/octoshrink_spctl.log | grep -q "accepted"; then
+if spctl -a -vvv -t exec "$APP" 2>&1 | tee /tmp/sizqo_spctl.log | grep -q "accepted"; then
   ok "Gatekeeper 接受"
 else
   echo "    ⚠ spctl 评估（未公证前可能显示 rejected，公证装订后会通过）：" >&2
-  sed 's/^/      /' /tmp/octoshrink_spctl.log
+  sed 's/^/      /' /tmp/sizqo_spctl.log
 fi
 
 echo ""
@@ -141,7 +164,7 @@ if [ "${SIGN_ONLY:-0}" = "1" ]; then
 fi
 
 # ---------- 6. 公证凭据前置检查 ----------
-NOTARY_PROFILE="${NOTARY_PROFILE:-octoshrink-notary}"
+NOTARY_PROFILE="${NOTARY_PROFILE:-sizqo-notary}"
 TEAM_ID="${APPLE_TEAM_ID:-$DEFAULT_TEAM_ID}"
 if ! xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1; then
   echo "✗ 钥匙串中未找到公证凭据 profile: $NOTARY_PROFILE" >&2
@@ -152,7 +175,7 @@ if ! xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>
 fi
 
 # ---------- 7. 制作 DMG ----------
-STAGING="$(mktemp -d -t octoshrink_dmg)"
+STAGING="$(mktemp -d -t sizqo_dmg)"
 trap 'rm -rf "$STAGING"' EXIT
 cp -R "$APP" "$STAGING/"
 ln -s /Applications "$STAGING/Applications"
