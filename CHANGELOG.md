@@ -3,6 +3,14 @@
 Sizqo's versioning starts at 0.1.0. This file records user-visible changes;
 engineering rules live in [AGENTS.md](AGENTS.md).
 
+## 0.1.1 — launch crash fix
+
+- Fixed a startup abort on every build: the updater plugin was registered
+  unconditionally while `tauri.conf.json` intentionally ships no
+  `plugins.updater` section. Registration now follows the same build-time
+  gate as the update commands (`SIZQO_UPDATER_CONFIGURED=1`); without it the
+  app starts with updates disabled, exactly as [AGENTS.md](AGENTS.md) requires.
+
 ## 0.1.0 — initial Sizqo release
 
 Sizqo is an independent derivative of OctoShrink (inherited MIT license and

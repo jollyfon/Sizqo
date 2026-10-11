@@ -509,7 +509,13 @@ pub fn run() {
         feature = "cli-backends",
         not(feature = "inproc-backends")
     ))]
-    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+    // 只有构建期显式配置了独立更新源（SIZQO_UPDATER_CONFIGURED=1）才注册 updater
+    // 插件；tauri.conf.json 未提供 plugins.updater 时注册它会在启动时直接 panic。
+    let builder = if option_env!("SIZQO_UPDATER_CONFIGURED") == Some("1") {
+        builder.plugin(tauri_plugin_updater::Builder::new().build())
+    } else {
+        builder
+    };
 
     builder
         .on_page_load(|_webview, _payload| {
