@@ -59,12 +59,57 @@ fi
 log "签名身份：$SIGNING_IDENTITY"
 
 # ---------- 1. 构建 ----------
+# 在线更新：钥匙串存有 Sizqo 独立签名私钥（sizqo-updater-privkey）时才启用，
+# 构建合并 tauri.conf.updater.json（独立公钥 + GitHub latest.json 源），
+# 并设置 SIZQO_UPDATER_CONFIGURED=1（与 lib.rs 的插件注册门禁一致）。
+# 没有密钥就按"更新禁用"构建 —— 不注册插件，不出更新产物。
+UPDATER_PRIVKEY="$(security find-generic-password -s sizqo-updater-privkey -w 2>/dev/null | base64 -d 2>/dev/null || true)"
+UPDATER_KEYPW="$(security find-generic-password -s sizqo-updater-key-password -w 2>/dev/null || true)"
+UPDATER_MERGE="$TAURI_DIR/tauri.conf.updater.json"
+UPDATER_ENABLED=0
+BUILD_ENV=()
+if [ -n "$UPDATER_PRIVKEY" ] && [ -f "$UPDATER_MERGE" ]; then
+  UPDATER_ENABLED=1
+  BUILD_ENV=(SIZQO_UPDATER_CONFIGURED=1 TAURI_SIGNING_PRIVATE_KEY="$UPDATER_PRIVKEY" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$UPDATER_KEYPW")
+  log "在线更新：已启用（Sizqo 独立密钥，签名更新产物 + latest.json）"
+else
+  log "在线更新：钥匙串无签名私钥，按禁用构建（更新插件不注册）"
+fi
 if [ "${SKIP_BUILD:-0}" != "1" ]; then
   log "cargo tauri build --bundles app（release, arm64, 不由 Tauri 自动签名；DMG 由本脚本后续用 hdiutil 生成）"
   # 只构建 .app，避开 Tauri 自带的 create-dmg 步骤（该步骤在新版 create-dmg 上会因参数不匹配而失败）
-  ( cd "$TAURI_DIR" && cargo tauri build --bundles app ) || fail "cargo tauri build 失败"
+  ( cd "$TAURI_DIR" && env "${BUILD_ENV[@]}" cargo tauri build --bundles app ${UPDATER_ENABLED:+--config "$UPDATER_MERGE"} ) || fail "cargo tauri build 失败"
 fi
 [ -d "$APP" ] || fail "构建产物不存在：$APP（请先 SKIP_BUILD=0 跑一次构建）"
+
+# ---------- 1.5 生成在线更新产物清单 ----------
+if [ "$UPDATER_ENABLED" = "1" ]; then
+  APP_VERSION="$(plutil -extract CFBundleShortVersionString raw "$APP/Contents/Info.plist")"
+  TGZ="$TAURI_DIR/target/release/bundle/macos/$APP_NAME.app.tar.gz"
+  SIG="$TGZ.sig"
+  [ -f "$TGZ" ] || fail "更新包缺失：$TGZ（createUpdaterArtifacts 未生效？）"
+  [ -f "$SIG" ] || fail "更新包签名缺失：$SIG"
+  LATEST="$TAURI_DIR/target/release/bundle/macos/latest.json"
+  python3 - "$APP_VERSION" "$TGZ" "$SIG" "$LATEST" << 'PYEOF'
+import datetime, json, sys
+version, tgz, sig, out = sys.argv[1:5]
+signature = open(sig).read().strip()
+feed = {
+    "version": version,
+    "pub_date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "notes": f"Sizqo {version}",
+    "platforms": {
+        "darwin-aarch64": {
+            "signature": signature,
+            "url": f"https://github.com/misswell/Sizqo/releases/download/v{version}/Sizqo.app.tar.gz",
+        }
+    },
+}
+open(out, "w").write(json.dumps(feed, ensure_ascii=False, indent=2) + "\n")
+print(f"latest.json -> {version}")
+PYEOF
+  ok "latest.json 已生成（darwin-aarch64 → v$APP_VERSION）"
+fi
 
 # ---------- 2. 打包内置工具到 .app ----------
 log "复制内置 CLI 工具和动态库到 .app/Contents/Resources"

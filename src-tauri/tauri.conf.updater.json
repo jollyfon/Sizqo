@@ -1,0 +1,13 @@
+{
+  "bundle": {
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IENBNzU1QThGN0RBQUMxMTkKUldRWndhcDlqMXAxeXRuNEtrVGFYdlhEaEYxT3ltSHcvM1pJcDFQRy93cE5WcEhHSjNHUTRFY1MK",
+      "endpoints": [
+        "https://github.com/misswell/Sizqo/releases/latest/download/latest.json"
+      ]
+    }
+  }
+}

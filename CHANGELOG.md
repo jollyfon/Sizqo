@@ -3,6 +3,24 @@
 Sizqo's versioning starts at 0.1.0. This file records user-visible changes;
 engineering rules live in [AGENTS.md](AGENTS.md).
 
+## 0.1.3 — in-app updates
+
+- In-app (online) updates are live for the Direct edition, following the
+  OctoShrink/MacPilot pipeline but with an **independent Sizqo signing key**
+  (generated fresh; the private key and its password live only in this
+  machine's login keychain — never in the repo) and an independent feed:
+  `releases/latest/download/latest.json`.
+- `scripts/notarize.sh` enables the updater only when the keychain holds
+  `sizqo-updater-privkey`: the build merges `tauri.conf.updater.json`
+  (pubkey + endpoint + `createUpdaterArtifacts`), sets
+  `SIZQO_UPDATER_CONFIGURED=1` (the same gate `lib.rs` uses for plugin
+  registration), and emits the signed `Sizqo.app.tar.gz` + `.sig` +
+  `latest.json`. Without the key the build stays updater-disabled, exactly
+  as [AGENTS.md](AGENTS.md) requires.
+- Existing installs update automatically from v0.1.3 onward; the v0.1.2 and
+  earlier builds have no updater registered and need one manual install of
+  v0.1.3.
+
 ## 0.1.2 — media tab switching fix
 
 - Fixed the 全部/图片/视频/历史 media tabs doing nothing when clicked:
