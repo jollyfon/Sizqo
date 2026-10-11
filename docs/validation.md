@@ -74,6 +74,15 @@ Last updated: 2026-10-11
 - Video: **not implemented**. No VideoProbe/VideoEncoder exists in
   `swift/Sources/SizqoSwift`; do not advertise video for this track.
 
+## Release: v0.1.0 (2026-10-11)
+
+- Direct DMG `Sizqo-0.1.0-macos.dmg` (31 MB, arm64): Developer ID Application
+  "Guofeng Liu (U8U443D7ZL)" signed, notarized (Accepted), stapled, spctl
+  accepted. Bundled ffmpeg 9.0.2 configuration recorded in
+  [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) with corresponding-source
+  links (GPL-2.0-or-later configuration: libx264/libx265 enabled).
+- App Store and Swift-native tracks are not part of this release.
+
 ## Release gate (per [AGENTS.md](../AGENTS.md))
 
 Before any tag/Release: full three-track build, signed Direct runtime check,

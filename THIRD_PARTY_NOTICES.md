@@ -51,11 +51,21 @@ Before every public release, the release owner must:
 4. The App Store track never bundles or launches FFmpeg; this notice does not
    apply to that track.
 
-**Status for the current tree:** the repository does not pin an FFmpeg build
-yet. `scripts/collect_macos_tools.sh` copies the developer's local Homebrew
-FFmpeg, whose default configuration enables GPL encoders — a build collected
-this way is for local testing only and MUST NOT be published until step 1–3
-above are completed and reviewed.
+**Status for v0.1.0 (recorded 2026-10-11):** the bundled binary is
+`ffmpeg version 9.0.2` (Homebrew build, `Lavf63/Lavc63`), configuration:
+`--enable-gpl --enable-libsvtav1 --enable-libopus --enable-libx264
+--enable-libmp3lame --enable-libdav1d --enable-libvmaf --enable-libvpx
+--enable-libx265 --enable-openssl --enable-videotoolbox --enable-audiotoolbox
+--enable-neon` (full line ships in the release notes). Because GPL encoders
+(libx264, libx265) are enabled, the whole FFmpeg binary is GPL-2.0-or-later;
+the corresponding-source offer is provided through the release page links:
+FFmpeg n9.0.2 (https://ffmpeg.org/download.html), x264
+(https://www.videolan.org/developers/x264.html), x265
+(https://bitbucket.org/multicoreware/x265_git), libsvtav1
+(https://gitlab.com/AOMediaCodec/SVT-AV1), libvpx
+(https://chromium.googlesource.com/webm/libvpx), and the image tool sources
+listed above. pngquant 3.0.3 and gifsicle are GPL binaries bundled in the same
+installer and are covered by the same source-offer approach.
 
 FFmpeg homepage: https://www.ffmpeg.org — licenses: https://www.ffmpeg.org/legal.html
 
