@@ -845,6 +845,8 @@ function getRunnablePendingPaths(requestedPaths) {
 function setMediaFilter(filter) {
   mediaFilter = ['all', 'image', 'video'].includes(filter) ? filter : 'all';
   showView('main');
+  // 变量本身不画任何东西：导航高亮、两侧设置面板、队列行过滤都由这次重绘驱动。
+  updateMediaWorkspace();
 }
 
 function setHistoryFilter(filter) {
@@ -2378,6 +2380,9 @@ function showView(name) {
   if (historyBtn) historyBtn.classList.toggle('active', view === 'history');
   var settingsBtn = document.getElementById('settingsViewBtn');
   if (settingsBtn) settingsBtn.classList.toggle('active', view === 'settings');
+  // 媒体导航（全部/图片/视频/历史）的高亮也由 currentView + mediaFilter 派生，
+  // 不刷新的话从历史页回来或进历史页时 tab 状态会停在旧位置。
+  if (typeof updateMediaNavigation === 'function') updateMediaNavigation();
   // 每次进入都重新读盘：历史是后端状态，不能只信启动时那份快照。
   if (view === 'history') refreshHistory();
   if (view === 'settings') { loadRetentionSetting(); loadCpuSetting(); initUpdatePanel(); }

@@ -3,6 +3,16 @@
 Sizqo's versioning starts at 0.1.0. This file records user-visible changes;
 engineering rules live in [AGENTS.md](AGENTS.md).
 
+## 0.1.2 — media tab switching fix
+
+- Fixed the 全部/图片/视频/历史 media tabs doing nothing when clicked:
+  `setMediaFilter` only updated the internal filter without triggering any
+  redraw, so the nav highlight, the image/video settings panels, and the
+  queue filtering never followed. Switching now runs the workspace redraw;
+  `showView` also refreshes the media nav highlight (fixes the 历史 tab
+  highlight too). Regression test: `tests/media-tabs.cjs` drives the real
+  functions in a VM and asserts highlight + panel visibility + queue redraw.
+
 ## 0.1.1 — launch crash fix
 
 - Fixed a startup abort on every build: the updater plugin was registered
