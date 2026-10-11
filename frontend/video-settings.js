@@ -62,6 +62,7 @@
     if (/^(?:libx264|h264_videotoolbox)$/.test(id)) return 'h264';
     if (/^(?:libx265|hevc_videotoolbox)$/.test(id)) return 'hevc';
     if (/^(?:libsvtav1|av1_)/.test(id)) return 'av1';
+    if (/^libvpx-vp9$/.test(id)) return 'vp9';
     return '';
   }
 
@@ -79,8 +80,8 @@
       errors.push('所选编码器当前不可用');
     }
     if (!modes.includes(options.mode)) errors.push('所选编码器不支持此控制模式');
-    if (!['mp4', 'mov', 'mkv', 'webm'].includes(options.container)) errors.push('输出容器不受支持');
-    if (!['copy', 'aac', 'opus', 'none'].includes(options.audioPolicy)) errors.push('音频策略不受支持');
+    if (!['mp4', 'mov', 'mkv', 'webm', 'ts'].includes(options.container)) errors.push('输出容器不受支持');
+    if (!['copy', 'aac', 'opus', 'mp3', 'flac', 'none'].includes(options.audioPolicy)) errors.push('音频策略不受支持');
     if (!['copy', 'drop'].includes(options.subtitlePolicy)) errors.push('字幕策略不受支持');
     if (!['preserve', 'stripPrivate', 'strip'].includes(options.metadataPolicy)) errors.push('元数据策略不受支持');
     if (!['suffix', 'directory', 'replace'].includes(options.outputMode)) errors.push('输出方式不受支持');
@@ -92,11 +93,17 @@
     }
 
     const family = knownEncoderFamily(options.encoder);
-    if (options.container === 'webm' && family && family !== 'av1') {
+    if (options.container === 'webm' && family && family !== 'av1' && family !== 'vp9') {
       errors.push('WebM 不能使用 H.264 或 HEVC 编码');
     }
     if (options.container === 'mp4' && options.audioPolicy === 'opus') {
       errors.push('MP4 不支持 Opus 音轨；请选择 AAC 或 MKV');
+    }
+    if (options.container === 'ts' && options.audioPolicy === 'opus') {
+      errors.push('TS 不支持 Opus 音轨；请选择 AAC/MP3 或 MKV');
+    }
+    if (options.audioPolicy === 'flac' && options.container !== 'mkv') {
+      errors.push('FLAC 音轨需要 MKV 容器');
     }
 
     const streams = probe && Array.isArray(probe.streams) ? probe.streams : [];
@@ -175,7 +182,7 @@
     }
     const durationUs = Number(probe && probe.durationUs);
     if ((normalized.mode === 'abr' || normalized.mode === 'twoPass') && durationUs > 0 && Number(normalized.bitrateKbps) > 0) {
-      const audioKbps = normalized.audioPolicy === 'aac' || normalized.audioPolicy === 'opus' ? 160 : 0;
+      const audioKbps = normalized.audioPolicy === 'aac' || normalized.audioPolicy === 'opus' || normalized.audioPolicy === 'mp3' ? 160 : 0;
       return { bytes: (Number(normalized.bitrateKbps) + audioKbps) * 1000 * durationUs / 8000000, basis: 'bitrate' };
     }
     return null;

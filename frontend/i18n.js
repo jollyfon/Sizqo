@@ -102,6 +102,7 @@
     '按所选编码器解释；数值不能跨编码器直接比较': 'Interpreted by the selected encoder; values are not comparable across encoders',
     '预计体积是估算；实际结果取决于素材内容、编码器和轨道开销。': 'The estimated size is an estimate; the actual result depends on content, encoder, and track overhead.',
     '转换为 AAC 160 kbps': 'Convert to AAC 160 kbps', '转换为 Opus 160 kbps': 'Convert to Opus 160 kbps',
+    '转换为 MP3 160 kbps': 'Convert to MP3 160 kbps', '转换为 FLAC 无损': 'Convert to FLAC (lossless)',
     'kbps · 估算不保证最终体积': 'kbps · Estimated; the final size is not guaranteed', 'MiB · 音频与容器开销会影响结果': 'MiB · Audio and container overhead affect the result',
     '恒定质量（CRF）': 'Constant quality (CRF)', '目标码率（ABR）': 'Target bitrate (ABR)', '两遍码率': 'Two-pass bitrate',
     '保持源分辨率': 'Keep source resolution', '保持源时间戳 / VFR': 'Keep source timestamps / VFR', '自定义最长边像素': 'Custom longest edge in pixels',

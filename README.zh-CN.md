@@ -48,8 +48,8 @@ Sizqo 把常用的媒体压缩能力装进一个 macOS 桌面应用：**图片�
 ### 视频（Direct 版）
 
 - **预设**：快速（硬件 H.264/HEVC）、均衡、高质量（x264/x265 CRF）、目标体积（两遍编码）、兼容优先，以及完全自定义的编码参数。
-- **编码器**：支持时优先硬件 VideoToolbox（H.264/HEVC），软件 x264、x265、SVT-AV1（AV1）可选；编码器回退会明确展示。
-- **输出容器**：MP4、MOV、MKV、WebM。音轨、字幕、章节、附件要么保留，要么明确告知被移除，绝不悄悄丢。
+- **编码器**：支持时优先硬件 VideoToolbox（H.264/HEVC），软件 x264、x265、SVT-AV1（AV1）、VP9 可选；编码器回退会明确展示。
+- **输出容器**：MP4、MOV、MKV、WebM、TS。音频可复制或转为 AAC、Opus、MP3、FLAC（无损，MKV）。音轨、字幕、章节、附件要么保留，要么明确告知被移除，绝不悄悄丢。
 - **诚实的结果**：只有当输出有效、可播放且确实更小时才算“压缩成功”；HDR / 杜比视界、10bit、Alpha、隔行扫描等输入会被拒绝并解释原因，不做静默色调映射。
 - **逐任务进度**：编码速度、预计剩余时间，以及有上限的诊断日志。
 - **同帧对比**：选一个时间点，源视频和输出视频的帧并排对比。
@@ -139,7 +139,7 @@ Sizqo 使用 **Tauri 2**（Rust 后端 + 原生 HTML/CSS/JavaScript 前端，前
 | WebP | cwebp | webp | cwebp |
 | AVIF | avifenc | ravif | avifenc |
 | GIF | gifsicle（减色） | image crate 重编码 | gifsicle（减色） |
-| 视频 | 内置 FFmpeg（x264 / x265 / SVT-AV1 / VideoToolbox） | 原生桥接验证通过前禁用 | 尚未实现 |
+| 视频 | 内置 FFmpeg（x264 / x265 / SVT-AV1 / VP9 / VideoToolbox） | 原生桥接验证通过前禁用 | 尚未实现 |
 
 Direct 需要的 CLI 工具与库都打包在应用 `Contents/Resources` 里，用户无需自己安装。内置 FFmpeg 配置不含 GPL 组件；第三方许可细节汇总在 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 

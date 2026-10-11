@@ -36,6 +36,11 @@ workbench with video compression.
 - Presets: fast (hardware), balanced, high quality (CRF), target size
   (two-pass), compatibility-first, plus fully custom encoder controls with
   per-encoder validation.
+- Software encoders cover x264, x265, SVT-AV1, and VP9; output containers
+  are MP4, MOV, MKV, WebM, and TS; audio can be copied or converted to
+  AAC, Opus, MP3, or FLAC (lossless in MKV). Unsupported combinations
+  (VP9 in MP4, FLAC outside MKV, AV1 in TS, chapters in TS) are rejected
+  with an explanation instead of producing unplayable files.
 - Typed `EncodePlan` argv (no shell, no frontend-supplied commands); rotation
   metadata, odd-dimension scaling, frame-rate and audio policies handled
   explicitly.

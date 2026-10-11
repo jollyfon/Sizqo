@@ -57,7 +57,7 @@ impl VideoResult {
             output_mode: options.output_mode.clone(), history_id: None, stage: "failed".into() }
     }
 }
-pub fn is_video_extension(path: &Path) -> bool {
+pub fn is_video_extension(path:&Path) -> bool {
     matches!(path.extension().and_then(|x|x.to_str()).unwrap_or("").to_lowercase().as_str(),
-        "mp4"|"mov"|"mkv"|"webm"|"m4v"|"avi"|"ts"|"mts"|"m2ts")
+        "mp4"|"mov"|"mkv"|"webm"|"m4v"|"avi"|"ts"|"mts"|"m2ts"|"flv"|"wmv"|"mpg"|"mpeg"|"vob"|"rm"|"rmvb")
 }

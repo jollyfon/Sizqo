@@ -52,8 +52,8 @@ Compare the source and compressed image pixel by pixel in a separate window by d
 ### Videos (Direct edition)
 
 - **Presets:** Fast (hardware H.264/HEVC), Balanced, High quality (x264/x265 CRF), Target size (two-pass), Compatibility-first, and fully custom encoder settings.
-- **Encoders:** hardware H.264/HEVC through VideoToolbox when available, plus software x264, x265, and SVT-AV1 (AV1), with automatic fallback shown explicitly.
-- **Output containers:** MP4, MOV, MKV, WebM. Audio tracks, subtitles, chapters, and attachments are preserved or explicitly dropped — never silently lost.
+- **Encoders:** hardware H.264/HEVC through VideoToolbox when available, plus software x264, x265, SVT-AV1 (AV1), and VP9, with automatic fallback shown explicitly.
+- **Output containers:** MP4, MOV, MKV, WebM, and TS. Audio can be copied or converted to AAC, Opus, MP3, or FLAC (lossless, MKV). Tracks, subtitles, chapters, and attachments are preserved or explicitly dropped — never silently lost.
 - **Honest results:** an output is "compressed" only when it is valid, playable, and smaller than the source. HDR / Dolby Vision, 10-bit, alpha, and interlaced inputs are refused with an explanation instead of silently tone-mapped.
 - **Per-task progress:** encoding speed, estimated remaining time, and a bounded diagnostics log for every task.
 - **Frame comparison:** pick a timestamp and compare the source and output frames side by side.
@@ -143,7 +143,7 @@ The exact, observed status of every track is recorded in [docs/validation.md](do
 | WebP | cwebp | webp | cwebp |
 | AVIF | avifenc | ravif | avifenc |
 | GIF | gifsicle (color reduction) | image crate re-encoding | gifsicle (color reduction) |
-| Video | Bundled FFmpeg (x264 / x265 / SVT-AV1 / VideoToolbox) | Disabled until native bridge is verified | Not yet implemented |
+| Video | Bundled FFmpeg (x264 / x265 / SVT-AV1 / VP9 / VideoToolbox) | Disabled until native bridge is verified | Not yet implemented |
 
 The CLI tools and libraries required by Direct are bundled in the app's `Contents/Resources` — users do not need to install anything. FFmpeg is built without GPL components for this bundled configuration; licensing details are collected in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 

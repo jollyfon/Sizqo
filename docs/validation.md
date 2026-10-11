@@ -23,7 +23,12 @@ Last updated: 2026-10-11
   frontend suites above. No regression observed.
 - Video pipeline (`src-tauri/src/video/`, `video_commands.rs`):
   - Probe / capability trials / EncodePlan / streaming encode / progress /
-    cancellation / validation / transaction are unit-tested (part of the 85).
+    cancellation / validation / transaction are unit-tested (87 unit tests).
+  - Software encoder set: x264, x265, SVT-AV1, VP9; containers MP4, MOV,
+    MKV, WebM, TS; audio policies copy/AAC/Opus/MP3/FLAC/none. Real runtime
+    validation (2026-10-11): VP9+WebM+Opus, x264+TS+MP3, and x264+MKV+FLAC
+    encoded with the collected binary, probed correct (format/codec), and
+    passed full-decode checks.
   - Real encode end-to-end with the collected runtime (2026-10-11, arm64):
     generated a 1280x720/30fps H.264+AAC 5s MP4 (4.7 MB), re-encoded it with
     the plan-shaped argv (libx264 CRF 28, AAC 160k, `+faststart`) through the
