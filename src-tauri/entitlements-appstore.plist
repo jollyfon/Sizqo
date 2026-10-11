@@ -2,7 +2,17 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <!-- 手动 codesign 不会自动注入：profile 带 application-identifier 时，
+         签名里必须有同一个，否则 TestFlight 判不合格（ITMS-90886） -->
+    <key>com.apple.application-identifier</key>
+    <string>U8U443D7ZL.com.misswell.sizqo.appstore</string>
+    <key>com.apple.developer.team-identifier</key>
+    <string>U8U443D7ZL</string>
     <!-- App Store 强制沙盒 -->
+    <key>keychain-access-groups</key>
+    <array>
+        <string>U8U443D7ZL.*</string>
+    </array>
     <key>com.apple.security.app-sandbox</key>
     <true/>
     <!-- 允许读写用户主动选择过的文件（dialog / drag-drop 后书签化） -->

@@ -87,7 +87,7 @@ if [ -f "$PROFILE_FILE" ]; then
   ok "已嵌入 provisioning profile: $(basename "$PROFILE_FILE")"
 else
   # 非致命：没有它只是拿不到 TestFlight，审核与上架不受影响。
-  log "⚠️  未找到 provisioning profile（$PROFILE_FILE）—— 可提交审核，但该构建不能用于 TestFlight"
+  log "⚠️  未找到 provisioning profile（${PROFILE_FILE}）—— 可提交审核，但该构建不能用于 TestFlight"
   log "    重建：asc profiles create --name \"Sizqo macOS AppStore\" --profile-type MAC_APP_STORE \\"
   log "          --bundle 9G3X34F4VY --certificate L4SC3D834Q"
   log "          asc profiles download --id <PROFILE_ID> --output $PROFILE_FILE"
@@ -96,7 +96,10 @@ fi
 # ---------- 2. Apple Distribution 签名（hardened runtime + sandbox entitlements）----------
 # 前置：在钥匙串安装 "Apple Distribution: <name>" 证书（Apple Developer > Certificates > +）。
 SIGN_IDENTITY="${APPSTORE_SIGN_IDENTITY:-Apple Distribution: Guofeng Liu (U8U443D7ZL)}"
-log "codesign: $SIGN_IDENTITY + hardened runtime + entitlements"
+# 每次上传 TestFlight 都要新的 build 号（默认=版本号，可用 APPSTORE_BUILD_NUMBER 覆盖）
+APPSTORE_BUILD_NUMBER="${APPSTORE_BUILD_NUMBER:-$APP_VERSION}"
+plutil -replace CFBundleVersion -string "$APPSTORE_BUILD_NUMBER" "$APP/Contents/Info.plist"
+log "codesign: $SIGN_IDENTITY + hardened runtime + entitlements（CFBundleVersion=${APPSTORE_BUILD_NUMBER}）"
 codesign --force --options runtime --entitlements "$ENTITLEMENTS" --sign "$SIGN_IDENTITY" "$APP" \
   || fail "签名失败：确认钥匙串已安装 Apple Distribution 证书"
 ok "$APP 已签名"

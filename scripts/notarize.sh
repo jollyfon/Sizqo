@@ -80,14 +80,14 @@ if [ "${SKIP_BUILD:-0}" != "1" ]; then
   # 只构建 .app，避开 Tauri 自带的 create-dmg 步骤（该步骤在新版 create-dmg 上会因参数不匹配而失败）
   ( cd "$TAURI_DIR" && env "${BUILD_ENV[@]}" cargo tauri build --bundles app ${UPDATER_ENABLED:+--config "$UPDATER_MERGE"} ) || fail "cargo tauri build 失败"
 fi
-[ -d "$APP" ] || fail "构建产物不存在：$APP（请先 SKIP_BUILD=0 跑一次构建）"
+[ -d "$APP" ] || fail "构建产物不存在：${APP}（请先 SKIP_BUILD=0 跑一次构建）"
 
 # ---------- 1.5 生成在线更新产物清单 ----------
 if [ "$UPDATER_ENABLED" = "1" ]; then
   APP_VERSION="$(plutil -extract CFBundleShortVersionString raw "$APP/Contents/Info.plist")"
   TGZ="$TAURI_DIR/target/release/bundle/macos/$APP_NAME.app.tar.gz"
   SIG="$TGZ.sig"
-  [ -f "$TGZ" ] || fail "更新包缺失：$TGZ（createUpdaterArtifacts 未生效？）"
+  [ -f "$TGZ" ] || fail "更新包缺失：${TGZ}（createUpdaterArtifacts 未生效？）"
   [ -f "$SIG" ] || fail "更新包签名缺失：$SIG"
   LATEST="$TAURI_DIR/target/release/bundle/macos/latest.json"
   python3 - "$APP_VERSION" "$TGZ" "$SIG" "$LATEST" << 'PYEOF'
