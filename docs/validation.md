@@ -83,6 +83,23 @@ Last updated: 2026-10-11
   links (GPL-2.0-or-later configuration: libx264/libx265 enabled).
 - App Store and Swift-native tracks are not part of this release.
 
+## In-app updates (2026-10-11, v0.1.3)
+
+- Independent minisign keypair generated for Sizqo; private key + password
+  stored only in the local login keychain (`sizqo-updater-privkey` /
+  `sizqo-updater-key-password`), pubkey committed in
+  `src-tauri/tauri.conf.updater.json`. No OctoShrink key or feed reused.
+- `notarize.sh` enables the updater only when the keychain entry exists
+  (build merge config + `SIZQO_UPDATER_CONFIGURED=1` + signed
+  `Sizqo.app.tar.gz` + `latest.json`); without it the build stays
+  updater-disabled.
+- Verified: app boots with the plugin registered (config-present +
+  registered combination), settings page shows 当前版本 v0.1.3 Direct with
+  the 在线更新 row, the public feed endpoint
+  `releases/latest/download/latest.json` returns the v0.1.3 feed
+  (HTTP 200), and release assets are anonymously downloadable. The actual
+  download-and-install path engages from the next release onward.
+
 ## Release gate (per [AGENTS.md](../AGENTS.md))
 
 Before any tag/Release: full three-track build, signed Direct runtime check,
