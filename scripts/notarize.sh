@@ -108,7 +108,7 @@ feed = {
 open(out, "w").write(json.dumps(feed, ensure_ascii=False, indent=2) + "\n")
 print(f"latest.json -> {version}")
 PYEOF
-  ok "latest.json 已生成（darwin-aarch64 → v$APP_VERSION）"
+  ok "latest.json 已生成（darwin-aarch64 → v${APP_VERSION}）"
 fi
 
 # ---------- 2. 打包内置工具到 .app ----------
