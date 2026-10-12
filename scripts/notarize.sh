@@ -8,9 +8,14 @@
 #   SIGN_ONLY=1 bash scripts/notarize.sh      # 构建 + 签名，跳过公证
 # 环境变量（可选覆盖）：
 #   SIGNING_IDENTITY          指定 codesign 签名身份；默认自动检测 Developer ID Application
-#   NOTARY_PROFILE            notarytool keychain 凭据 profile（推荐：先 notarytool store-credentials）
-#                            默认值 sizqo-notary（已通过 xcrun notarytool store-credentials 保存在钥匙串）
-#   APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID   不用 profile 时的公证凭据
+#   NOTARY_PROFILE            notarytool 钥匙串凭据 profile 名，默认 sizqo-notary。
+#                            注意：这个 profile **不一定存在**（本机就没有）。脚本会先用
+#                            `notarytool history` 实测；不存在就自动改走下面的 API key 路线。
+#   APPLE_API_KEY_PATH / APPLE_API_KEY_ID / APPLE_API_ISSUER
+#                            App Store Connect API key（.p8 路径 + Key ID + Issuer UUID）。
+#                            无交互 shell（CI / agent）写不进钥匙串时用这条，
+#                            PEM 由调用方持有，脚本不复制、不负责清理。
+#   APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID   第三条兜底路线
 #   SKIP_BUILD=1              跳过 cargo tauri build，复用已有 .app
 #   VERBOSE=1                 输出签名详情
 
@@ -209,12 +214,32 @@ if [ "${SIGN_ONLY:-0}" = "1" ]; then
 fi
 
 # ---------- 6. 公证凭据前置检查 ----------
-NOTARY_PROFILE="${NOTARY_PROFILE:-sizqo-notary}"
+# 三条路线，按顺序取第一条可用的。默认仍是钥匙串 profile；API key 路线存在的原因是
+# 非交互 shell（CI / agent）里 store-credentials 会撞 "User interaction is not allowed"，
+# 写不进钥匙串，但不公证又不行——Apple 的 --key/--key-id/--issuer 本来就允许直接给
+# PEM 路径，不经过任何凭据存储。PEM 文件由调用方持有并负责清理（脚本里不落地副本，
+# 免得和后面的 trap 抢 EXIT 清理时机，把密钥留在 /tmp）。
 TEAM_ID="${APPLE_TEAM_ID:-$DEFAULT_TEAM_ID}"
-if ! xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1; then
-  echo "✗ 钥匙串中未找到公证凭据 profile: $NOTARY_PROFILE" >&2
-  echo "  请先执行一次：" >&2
-  echo "    xcrun notarytool store-credentials $NOTARY_PROFILE --apple-id misswell@foxmail.com --team-id U8U443D7ZL" >&2
+NOTARY_PROFILE="${NOTARY_PROFILE:-sizqo-notary}"
+NOTARY_ARGS=()
+if [ -n "${NOTARY_PROFILE:-}" ] && xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1; then
+  NOTARY_ARGS=(--keychain-profile "$NOTARY_PROFILE")
+  log "公证凭据：钥匙串 profile $NOTARY_PROFILE"
+elif [ -n "${APPLE_API_KEY_PATH:-}" ] && [ -n "${APPLE_API_KEY_ID:-}" ] && [ -n "${APPLE_API_ISSUER:-}" ]; then
+  [ -f "$APPLE_API_KEY_PATH" ] || fail "APPLE_API_KEY_PATH 指向的文件不存在：$APPLE_API_KEY_PATH"
+  NOTARY_ARGS=(--key "$APPLE_API_KEY_PATH" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER")
+  log "公证凭据：App Store Connect API key（不写钥匙串）"
+elif [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" ]; then
+  NOTARY_ARGS=(--apple-id "$APPLE_ID" --team-id "$TEAM_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD")
+  log "公证凭据：Apple ID + app-specific password"
+else
+  echo "✗ 没有可用的公证凭据（三选一）：" >&2
+  echo "  [1] 钥匙串 profile（默认名 $NOTARY_PROFILE）：" >&2
+  echo "        xcrun notarytool store-credentials <profile> --apple-id <你的 Apple ID> --team-id $DEFAULT_TEAM_ID" >&2
+  echo "      已存在的 profile 可用 NOTARY_PROFILE=<name> 指定；无交互 shell 里这条会写不进钥匙串。" >&2
+  echo "  [2] App Store Connect API key（推荐用于 CI / 无交互 shell）：" >&2
+  echo "        APPLE_API_KEY_PATH=<.p8 路径> APPLE_API_KEY_ID=<Key ID> APPLE_API_ISSUER=<Issuer UUID>" >&2
+  echo "  [3] APPLE_ID + APPLE_APP_SPECIFIC_PASSWORD（+ APPLE_TEAM_ID）" >&2
   echo "  本地已签名产物保留在：$APP" >&2
   exit 3
 fi
@@ -232,15 +257,7 @@ ok "$(basename "$DMG")"
 
 # ---------- 8. 提交公证 ----------
 log "提交 Apple 公证（notarytool --wait）"
-if [ -n "${NOTARY_PROFILE:-}" ]; then
-  xcrun notarytool submit "$DMG" --keychain-profile "$NOTARY_PROFILE" --wait
-else
-  xcrun notarytool submit "$DMG" \
-    --apple-id "$APPLE_ID" \
-    --team-id "$TEAM_ID" \
-    --password "$APPLE_APP_SPECIFIC_PASSWORD" \
-    --wait
-fi
+xcrun notarytool submit "$DMG" "${NOTARY_ARGS[@]}" --wait
 
 # ---------- 9. 装订公证票据 ----------
 log "装订公证票据"
