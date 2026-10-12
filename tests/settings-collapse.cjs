@@ -1,99 +1,222 @@
-// 压缩设置面板：默认折叠。
+// 「更多参数」默认收起，但收起的那一行必须真有话说；意图与落盘是一对二。
 //
-// 用户导入图片后先看到的应该是「压缩设置 + 当前参数摘要」这一行，想改再点开 ——
-// 而不是每次都被一屏设置项顶到队列前面。三条不变量：
-//   ① 初始就带 collapsed（HTML 上写死，不靠 JS 事后补）；
-//   ② 只有用户点标题才切换（没有任何代码路径在启动 / 导入 / 清空时自动展开，
-//      否则"默认折叠"会在那些路径上悄悄失效）；
-//   ③ 折叠起来的那一行必须真有话可说（摘要函数在启动时跑过、CSS 规则在），
-//      不然收起来就成了一个什么都不告诉用户的空壳。
+// 旧版是一屏可折叠的"压缩设置"面板，参数是主人、意图是它的别名。新 IA 反过来：
+// chips 是唯一的入口，原始参数只是意图的展开形式，默认收在 <details> 里。四条不变量：
+//   ① 起手收起（HTML 写死 open 缺席），且没有任何代码路径替用户展开它；
+//   ② 收起时标题行仍在报"现在会跑什么"（意图摘要），不是个空壳；
+//   ③ 意图接管期间，不属于这个意图的原始控件不许"看得见但没人读"；
+//      切到自定义时接管提示消失、控件铺的是此刻真正生效的那套值；
+//   ④ 意图与它的原始字段一起落盘、一起读回；读回的意图必须在**当前平台**可选列表里。
 const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
+const {
+  source, slice, installIntentModel, installSystemMode,
+} = require('./app-slices.cjs');
 
 const html = fs.readFileSync('frontend/index.html', 'utf8');
 const css = fs.readFileSync('frontend/style.css', 'utf8');
-const { source, slice, installTranslationFallback } = require('./app-slices.cjs');
 
-// ── ① 初始折叠：写在 HTML 的 class 里 ─────────────────────────────────
-const panelTag = html.match(/<div[^>]*id="settingsPanel"[^>]*>/);
-assert.ok(panelTag, '找不到压缩设置面板 #settingsPanel');
-const classes = (panelTag[0].match(/class="([^"]*)"/) || [])[1] || '';
-assert.ok(classes.split(/\s+/).includes('collapsed'),
-  '#settingsPanel 必须带着 collapsed 起手，否则一导入就是展开的一屏设置项');
-assert.match(panelTag[0], /style="display:none;"/,
-  '导入之前整块面板仍然不显示（显示时机没变，只是显示的默认形态变了）');
+// ── ① 默认收起：写在 HTML 里，不靠 JS 事后补 ──────────────────────────
+const detailsTag = html.match(/<details[^>]*id="intentAdvanced"[^>]*>/);
+assert.ok(detailsTag, '找不到「更多参数」#intentAdvanced');
+assert.ok(!/\bopen\b/.test(detailsTag[0]),
+  '#intentAdvanced 必须不带 open 起手，否则一进来又是一屏参数顶在队列前面');
+assert.doesNotMatch(source, /\.open\s*=\s*true/,
+  '不许有任何代码路径替用户展开 details（"默认收起"会在那些路径上悄悄失效）');
+assert.ok(css.includes('.intent-advanced'), '收起的样式在位：details 没有 CSS 就等于没设计');
 
-// 标题行仍挂着点击切换；摘要元素仍在标题里（折叠时显示的就是它）。
-assert.ok(html.includes('class="settings-header" onclick="toggleSettings()"'));
-assert.ok(html.indexOf('id="settingsSummary"') > panelTag.index, '摘要在面板标题里');
+// ── 假 DOM：只给这一节真会碰到的格子 ──────────────────────────────────
+// innerHTML 不解析：真实代码用 querySelector 往格子上写字段，所以按 class 找、
+// 找不到就造一个，并且真的挂进 children —— 「接管提示加了又撤掉」这条断言
+// 依赖的就是它能被找到、也能真的消失。
+function el(tag, extra) {
+  const node = {
+    tagName: tag, id: (extra && extra.id) || '', children: [], parts: {}, dataset: {},
+    style: {}, attrs: {}, className: '', title: '', hidden: false, value: '', checked: false,
+    textContent: '', innerHTML: '', handlers: {}, _parent: null,
+    classList: {
+      _set: new Set(),
+      add(...n) { n.forEach(x => this._set.add(x)); },
+      remove(...n) { n.forEach(x => this._set.delete(x)); },
+      toggle(n, force) { (force === undefined ? !this._set.has(n) : !!force) ? this._set.add(n) : this._set.delete(n); },
+      contains(n) { return this._set.has(n); },
+    },
+    appendChild(c) { c._parent = node; node.children.push(c); return c; },
+    insertBefore(c) { c._parent = node; node.children.unshift(c); return c; },
+    setAttribute(k, v) { node.attrs[k] = v; },
+    addEventListener(t, fn) { (node.handlers[t] = node.handlers[t] || []).push(fn); },
+    querySelector(sel) {
+      // 找不到就返回 null —— 真实代码靠这个区分"提示已经在了"和"还没加过"。
+      if (sel[0] === '.') {
+        const cls = sel.slice(1);
+        return node.children.find(c => (c.className || '').split(/\s+/).includes(cls)) || null;
+      }
+      return node.parts[sel] || null;
+    },
+    remove() {
+      if (!node._parent) return;
+      const kids = node._parent.children;
+      const at = kids.indexOf(node);
+      if (at >= 0) kids.splice(at, 1);
+      node._parent = null;
+    },
+  };
+  Object.defineProperty(node, 'firstChild', { get: () => node.children[0] || null });
+  return node;
+}
 
-// ── ② 只有点击能改：全文只有两块面板各写一次这个 class ──────────────
-// 图片设置（toggleSettings）与视频设置（toggleVideoSettings）是平行的两块
-// 折叠面板，各自只有标题行点击这一处写 collapsed；除此之外不许有第三处写。
-const writes = source.match(/classList\.(?:add|remove|toggle)\(\s*'collapsed'/g) || [];
-assert.deepEqual(writes, ["classList.toggle('collapsed'", "classList.toggle('collapsed'"],
-  `collapsed 只许由 toggleSettings / toggleVideoSettings 各 toggle 一次，实际：${writes.join(', ')}`);
-assert.doesNotMatch(source, /settingsPanel'\)\.classList\.remove\('collapsed'\)/,
-  '不许有任何代码路径自动展开设置面板');
-assert.equal((html.match(/id="settingsPanel"/g) || []).length, 1, '面板只有一个');
-assert.equal((html.match(/id="videoSettingsPanel"/g) || []).length, 1, '视频面板只有一个');
-const videoPanelTag = html.match(/<div class="settings-panel video-settings-panel[^>]*id="videoSettingsPanel"[^>]*>/)
-  || html.match(/<div[^>]*id="videoSettingsPanel"[^>]*>/);
-assert.ok(videoPanelTag, '找不到视频设置面板 #videoSettingsPanel');
-assert.ok((videoPanelTag[0].match(/class="([^"]*)"/) || [])[1].split(/\s+/).includes('collapsed'),
-  '#videoSettingsPanel 也必须带着 collapsed 起手');
-assert.ok(html.includes('class="settings-header" onclick="toggleVideoSettings()"'),
-  '视频面板标题行也要挂点击切换');
+const ids = {};
+['imageIntentChips', 'videoIntentChips', 'imageIntentNote', 'videoIntentNote',
+  'imageIntentSummary', 'videoIntentSummary', 'intentTargetRow', 'targetBytesField',
+  'targetDimField', 'targetMiBField', 'imageTargetKib', 'imageDimCap', 'videoTargetMiBInput',
+  'intentAdvanced', 'imageIntentGroup', 'videoIntentGroup', 'imageAdvancedRows',
+  'videoAdvancedRows', 'systemInfoBtn', 'autoCompressLabel', 'autoCompress',
+  'outputFormat', 'systemOutputFormat', 'systemImageSize', 'preserveMetadata',
+].forEach(id => { ids[id] = el('div', { id }); });
+ids.imageIntentGroup.hidden = false;
+ids.videoIntentGroup.hidden = true;
+ids.autoCompress.checked = false;
+ids.imageTargetKib.value = '';
+ids.imageDimCap.value = '';
 
-// 设置页里的静态卡片（语言 / 外观 / 历史记录与原图 / 性能 / 更新 / 关于），
-// 它们没有折叠这回事，别被顺手加上 collapsed。
-const otherPanels = (html.match(/<div class="settings-panel"/g) || []).length;
-assert.equal(otherPanels, 6, '设置页各卡片保持原样（不带 collapsed）');
-
-// ── ③ 折叠时那一行真有摘要 ───────────────────────────────────────────
-assert.ok(css.includes('.settings-panel.collapsed .settings-body { display: none; }'),
-  '折叠就该把 body 收起来');
-assert.ok(/\.settings-panel\.collapsed \.settings-summary \{[^}]*display:\s*inline/.test(css),
-  '折叠时摘要那一行必须显示出来，否则面板收起来就什么都不说了');
-
-// 真实跑一遍 updateSettingsSummary：默认参数下摘要不能是空的。
-const elements = {
-  autoCompress: { checked: false },
-  qualitySlider: { value: '75' },
-  outputFormat: { value: 'original' },
-  smartMode: { checked: true },
-  settingsSummary: { textContent: '' },
+// 原始控件行：data-intent-raw 决定它归哪个意图管。
+const rawRows = {
+  custom: el('div'), system: el('div'),
 };
+rawRows.custom.dataset.intentRaw = 'image';
+rawRows.system.dataset.intentRaw = 'system';
+
+const qualitySlider = el('input'); qualitySlider.value = '75';
+const qualityValue = el('span');
+const store = {};
 const context = vm.createContext({
-  console, Set, Map, Promise, JSON, String, Array, Object, Number,
-  processingMode: 'advanced',
+  console, Set, Map, Promise, JSON, Math, Number, String, Array, Object, parseFloat, isNaN,
   document: {
-    getElementById: id => elements[id] || null,
+    getElementById: id => ids[id] || (id === 'qualitySlider' ? qualitySlider : id === 'qualityValue' ? qualityValue : null),
+    createElement: tag => el(tag),
     querySelector: () => ({ value: 'replace' }),
+    querySelectorAll: sel => (sel === '[data-intent-raw]' ? Object.values(rawRows) : []),
   },
+  window: {
+    SizqoI18n: { translateText: v => v },
+    SizqoVideo: { DEFAULT_OPTIONS: {}, normalizeOptions: o => Object.assign({}, o) },
+  },
+  localStorage: {
+    getItem: k => (k in store ? store[k] : null),
+    setItem: (k, v) => { store[k] = String(v); },
+    removeItem: k => { delete store[k]; },
+  },
+  location: { reload() { context._reloaded = true; } },
+  navigator: { userAgent: 'Mozilla/5.0 (Macintosh)' },
+  updateQualitySlider, qualitySlider, qualityValue,
+  iconMarkup: name => '<svg class="symbol-icon"><use href="#icon-' + name + '"/></svg>',
+  outputSuffixInput: el('input'),
+  currentOutputMode: () => 'replace',
   getOutputSuffix: () => '_compressed',
+  applyVideoOptions() {}, renderRunBar() {}, renderStartButton() {}, renderDetailPane() {},
 });
-installTranslationFallback(context);
-vm.runInContext(slice('function updateSettingsSummary(', 'function resetSettings('), context);
-context.updateSettingsSummary();
-assert.equal(elements.settingsSummary.textContent, 'Q75 · 原格式 · 智能 · 覆盖',
-  '折叠起来的那一行要报出当前参数，用户不用展开就知道现在是什么设置');
+function updateQualitySlider() { qualityValue.textContent = qualitySlider.value + '%'; }
 
-// 启动时确实跑过它：不跑的话上面那行是空的。
-const initBlock = source.slice(source.indexOf('// Init'), source.indexOf('})();', source.indexOf('// Init')));
-assert.ok(initBlock.includes('updateSettingsSummary()'),
-  '启动流程里必须调 updateSettingsSummary()，否则默认折叠的那一行是空白');
+installIntentModel(context);
+installSystemMode(context);
+// 跑的就是「意图条」这一节真实代码：chips、接管提示都在里面。
+vm.runInContext(slice('// ─── 意图条', '// ─── Drag and drop'), context);
+// 落盘与读回在同一节末尾：意图变了要立刻存，读回来要立刻铺成它跑得动的值。
+vm.runInContext(slice('function saveCompressSettings(', '// Init'), context);
+// 落盘与读回在文件末尾那一节 —— 意图变了要跟着它一起存，这里也装真的那段。
+vm.runInContext(slice('function saveCompressSettings(', '// Init'), context);
+context.isMacOS = () => true;
 
-// ── 点击仍然能展开 / 收起（默认折叠不等于点不开）──────────────────────
-const panel = { classList: { _has: true, toggle(name) { if (name === 'collapsed') this._has = !this._has; }, contains: () => true } };
-const toggleContext = vm.createContext({
-  console, document: { getElementById: id => (id === 'settingsPanel' ? panel : null) },
-});
-vm.runInContext(slice('function toggleSettings()', '// State'), toggleContext);
-toggleContext.toggleSettings();
-assert.equal(panel.classList._has, false, '点一下标题要展开');
-toggleContext.toggleSettings();
-assert.equal(panel.classList._has, true, '再点一下收回折叠');
+(async () => {
+  // ── ② 收起的那一行真的在说话 ────────────────────────────────────────
+  context.imageIntent.intent = 'balanced';
+  context.renderIntentBar();
+  assert.equal(ids.imageIntentSummary.textContent, '均衡 · Q75 · 原格式',
+    '折叠之上那行摘要就是用户唯一要读的结论，不能是空的');
+  assert.match(ids.imageIntentNote.textContent, /EXIF/,
+    '有代价的意图把代价写在同一行，不藏在展开之后');
 
-console.log('PASS: 压缩设置默认折叠、只有点击能改、摘要那一行有内容、点得开也收得回');
+  // ── ③ 接管提示 + 不相关的原始行不显示 ───────────────────────────────
+  const lockNote = () => ids.imageAdvancedRows.children
+    .find(child => (child.className || '').includes('advanced-lock-note'));
+  assert.ok(lockNote(), '均衡意图下必须写明这些参数此刻归谁');
+  assert.match(lockNote().textContent, /当前由「均衡」接管/, '提示要说清是哪个意图接管');
+  assert.equal(rawRows.custom.hidden, true, '不是自定义时，自定义的原始控件不该摆在那儿');
+  assert.equal(rawRows.system.hidden, true, '不是系统转换时，系统转换的控件同样收起');
+
+  // 切到自定义：接管提示消失，控件铺的是**此刻真正生效**的那套值。
+  context.setImageIntent('custom');
+  assert.equal(context.imageIntent.intent, 'custom');
+  assert.ok(!lockNote(), '自定义之下没有意图接管，提示必须撤掉');
+  assert.equal(rawRows.custom.hidden, false, '自定义时它的原始控件才该出现');
+  assert.equal(rawRows.system.hidden, true);
+  assert.equal(qualitySlider.value, '75');
+
+  // 从预算模式接手：编译出来的质量是 0（"由阶梯决定"），滑块上留 0 是个假刻度。
+  context.setImageIntent('targetSize');
+  assert.equal(context.imageRequestFromIntent().options.quality, 0, '预算模式下质量归阶梯，不是用户给的数');
+  context.setImageIntent('custom');
+  assert.ok(Number(qualitySlider.value) > 0, '接手的是能用的数，不是预算模式那个 0');
+  assert.equal(ids.imageTargetKib.value, String(Math.round(
+    context.imageRequestFromIntent().options.maxOutputBytes / 1024)),
+    '自定义里那格体积就是刚被接管的那预算');
+
+  // ── ④ 落盘 ↔ 读回是一对二 ──────────────────────────────────────────
+  context.setImageIntent('webSize');
+  context.imageIntent.maxDimensionPx = 1800;
+  context.videoIntent.intent = 'videoTarget';
+  context.videoIntent.targetMiB = 64;
+  ids.autoCompress.checked = true;
+  context.outputSuffixInput.value = '_min';
+  context.saveCompressSettings();
+  const saved = JSON.parse(store['sizqo-settings']);
+  assert.equal(saved.version, 2);
+  assert.equal(saved.imageIntent.intent, 'webSize');
+  assert.equal(saved.imageIntent.maxDimensionPx, 1800, '意图和被它接手的原始字段一起存');
+  assert.equal(saved.videoIntent.targetMiB, 64);
+  assert.equal(saved.autoCompress, true);
+  assert.equal(saved.outputSuffix, '_min');
+
+  // 换一台"刚启动"的机器：清掉内存态，只留落盘那份。
+  context.imageIntent.intent = 'balanced';
+  context.imageIntent.maxDimensionPx = null;
+  context.videoIntent.intent = 'videoSmall';
+  context.videoIntent.targetMiB = 100;
+  ids.autoCompress.checked = false;
+  context.outputSuffixInput.value = '';
+  context.loadCompressSettings();
+  assert.equal(context.imageIntent.intent, 'webSize', '意图回来了');
+  assert.equal(context.imageIntent.maxDimensionPx, 1800, '它接手的字段也回来了');
+  assert.equal(context.videoIntent.intent, 'videoTarget');
+  assert.equal(context.videoIntent.targetMiB, 64);
+  assert.equal(ids.autoCompress.checked, true);
+  assert.equal(context.outputSuffixInput.value, '_min');
+  assert.equal(qualitySlider.value, '72', '控件铺成读回来的意图真正会跑的值');
+
+  // systemConvert 只在 macOS 存在：在别的系统恢复它 = 一个看不见却驱动整条请求的意图。
+  store['sizqo-settings'] = JSON.stringify({ version: 2, imageIntent: { intent: 'systemConvert' } });
+  context.imageIntent.intent = 'balanced';
+  context.isMacOS = () => false;
+  context.loadCompressSettings();
+  assert.equal(context.imageIntent.intent, 'balanced', '非 macOS 不许恢复一个没有的意图');
+  context.isMacOS = () => true;
+  context.loadCompressSettings();
+  context.renderIntentBar();   // 启动流程在读完存档之后紧接着就画一次（updateMediaWorkspace）
+  assert.equal(context.imageIntent.intent, 'systemConvert', 'macOS 上同一份存档就该恢复');
+  assert.equal(rawRows.system.hidden, false, '系统转换的控件跟着意图一起出现');
+
+  // 坏存档不许把界面带崩，也不许留下半个意图。
+  store['sizqo-settings'] = '{ not json';
+  context.imageIntent.intent = 'balanced';
+  context.loadCompressSettings();
+  assert.equal(context.imageIntent.intent, 'balanced');
+
+  // 「还原默认设置」清两套：只清图片会留下"看着恢复了、视频还是上次的"。
+  store['sizqo-video-settings'] = '{"crf":23}';
+  context.resetSettings();
+  assert.ok(!('sizqo-settings' in store) && !('sizqo-video-settings' in store));
+  assert.equal(context._reloaded, true);
+
+  console.log('PASS: 更多参数默认收起且只有点击能展开、收起行有摘要、接管提示与原始行一起跟意图、意图+字段成对落盘读回');
+})().catch(error => { console.error(error); process.exitCode = 1; });

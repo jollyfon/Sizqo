@@ -72,50 +72,21 @@ enum SystemImageSize: String, CaseIterable {
     }
 }
 
-enum CompressionBackend: String, CaseIterable {
-    case auto = "auto"
-    case sharp = "sharp"
-    case cli = "cli"
-
-    var label: String {
-        switch self {
-        case .auto: return "自动选择（推荐）"
-        case .sharp: return "现代引擎（推荐）"
-        case .cli: return "CLI 工具"
-        }
-    }
-}
-
-enum CompressionEffort: Int, CaseIterable {
-    case fast = 4
-    case balanced = 6
-    case high = 7
-    case extreme = 9
-
-    var label: String {
-        switch self {
-        case .fast: return "快速"
-        case .balanced: return "平衡（推荐）"
-        case .high: return "高质量"
-        case .extreme: return "极致压缩（慢）"
-        }
-    }
-}
-
 struct CompressOptions {
     var processingMode: ProcessingMode = .advanced
     var systemImageSize: SystemImageSize = .actual
     var preserveMetadata: Bool = true
+    /// 均衡档（默认意图）的质量；与 Rust 线 `quality: 75` 一致。
     var quality: Int = 75
-    // Direct / App Store 的 UI 默认勾选智能模式；Swift 默认也必须打开，
-    // 否则 PNG 不会同时比较 PNG 与 WebP 候选，压缩结果会明显偏大。
-    var smartMode: Bool = true
     var outputFormat: OutputFormat = .original
-    var backend: CompressionBackend = .auto
-    var effort: CompressionEffort = .balanced
-    var convertToWebp: Bool = false
     var outputMode: OutputMode = .replace
     var outputSuffix: String = "_compressed"
     var outputDir: String?
     var sourceRoots: [String] = []
+
+    /// 最长边上限（px，只缩不放大）；nil = 不限制。与 Rust 线 `max_dimension_px` 对齐。
+    var maxDimensionPx: Int?
+    /// 字节预算：触发有界求解器（先降质量 80/65/50，再上尺寸上限 2560/1920/1280，最多 6 次编码）。
+    /// nil = 不设预算。与 Rust 线 `max_output_bytes` 对齐。
+    var maxOutputBytes: Int64?
 }

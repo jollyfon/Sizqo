@@ -8,7 +8,7 @@ const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const {
   slice, installStateMachine, installQueueCore, installSessionModel, installQueueRowPainter,
-  installMediaWorkspaceStubs,
+  installMediaWorkspaceStubs, installActionText, installSelection,
 } = require('./app-slices.cjs');
 const summary = { textContent: '' };
 const context_compressBtnText = { innerHTML: '' };
@@ -20,7 +20,7 @@ let sessionSeq = 0;
 const context = vm.createContext({
   console, Set, Map, Promise,
   window: { SizqoI18n: { translateText: value => value } },
-  files: [], inputPaths: [], pendingAutoCompress: false, processingMode: 'advanced',
+  files: [], inputPaths: [], pendingAutoCompress: false,
   queueItems: new Map(),
   fileRows: {},
   queueRevision: 0,
@@ -36,7 +36,6 @@ const context = vm.createContext({
     }[id] || null),
     querySelector: () => null,
   },
-  settingsPanel: {style:{}}, resultsPanel: {style:{}},
   statOriginal: {}, statCompressed: {}, totalSavings: {}, totalRate: {},
   ensureSystemOutputAccess: async () => true,
   getCurrentCompressionConfig: () => ({ options: {} }),
@@ -49,30 +48,31 @@ const context = vm.createContext({
   formatBytes: String, showToast(message) { context._toasts.push(message); }, iconMarkup() {},
   _toasts: [],
   renderQueueResultActions() {}, renderRestoredActions() {},
-  updateStats() {}, showResults() {}, applyQueueView() {},
+  applyQueueView() {},
   refreshHistoryIfOpen() {}, emitCompareResultsChanged() {}, showErrorDetail() {},
 });
 installMediaWorkspaceStubs(context);
 vm.runInContext(slice('function uniqueFilePaths(', 'async function renderFileQueue('), context);
-vm.runInContext(slice('function processingActionText(', 'function setProcessingMode('), context);
+installActionText(context);
 // 状态机与队列状态都是真实实现：批次起止要经过它们。
 installQueueCore(context);
 installStateMachine(context);
 installQueueRowPainter(context);
+installSelection(context);
 installSessionModel(context);
 context.setCompressionState('idle', true);
-vm.runInContext(slice('async function startCompression(', 'function updateStats('), context);
+vm.runInContext(slice('async function startCompression(', '// ─── 运行条 + 详情列'), context);
 
 // 每一行给个够用的假 DOM：真实 paintQueueRow 会往上写图标 / 文案 / 按钮。
 let rowSeq = 0;
 context.renderFileQueue = () => context.files.forEach(file => {
   if (context.fileRows[file]) return;
   const parts = {
-    '.queue-item-icon': { innerHTML: '' },
-    '.queue-item-status': { textContent: '' },
-    '.queue-item-size': { textContent: '' },
-    '.queue-item-actions': { innerHTML: '', querySelector: () => null },
-    '.queue-item-remove': { style: {}, addEventListener() {} },
+    '.media-state-icon': { innerHTML: '' },
+    '.media-meta': { textContent: '' },
+    '.media-size': { textContent: '' },
+    '.media-actions': { innerHTML: '', querySelector: () => null },
+    '.media-remove': { style: {}, addEventListener() {} },
   };
   context.fileRows[file] = {
     _id: ++rowSeq,

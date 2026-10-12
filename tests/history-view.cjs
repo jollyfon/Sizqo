@@ -2,7 +2,10 @@
 const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
-const { installStateMachine, installQueueCore, installQueueRowPainter, installMediaWorkspaceStubs } = require('./app-slices.cjs');
+const {
+  slice, installStateMachine, installQueueCore, installQueueRowPainter, installMediaWorkspaceStubs,
+  installPathUtils, installDetailHelpers,
+} = require('./app-slices.cjs');
 
 function makeEl(tag) {
   let html = '';
@@ -44,7 +47,7 @@ const ids = {
   mainView: makeEl('div'), historyView: makeEl('div'), settingsView: makeEl('div'),
   historyViewBtn: makeEl('button'), settingsViewBtn: makeEl('button'),
   historyList: makeEl('div'), historyEmpty: makeEl('div'), historyMeta: makeEl('span'),
-  historyClearBtn: makeEl('button'),
+  historyClearBtn: makeEl('button'), historyDetailBody: makeEl('div'),
   compressBtnText: makeEl('span'), pauseCompressBtn: makeEl('button'), pauseBtnText: makeEl('span'),
   queueSummary: makeEl('span'), restoreAllBtn: makeEl('button'), retentionDays: makeEl('select'),
   retentionCopy: makeEl('span'),
@@ -65,7 +68,9 @@ const context = vm.createContext({
   }])),
   compressBtnText: makeEl('span'), startCompressBtn: makeEl('button'),
   compressBtnFill: makeEl('div'),
-  processingMode: 'advanced',
+  // 两条选中线：本轮队列一项、历史一项。真实代码里它们是 app.js 的全局变量，
+  // 切片只切到用它们的那几行，所以初值由测试给。
+  selectedQueueFile: null, selectedHistoryKey: null,
   confirm: () => confirmAnswer,
   document: {
     getElementById: id => ids[id] || null,
@@ -83,6 +88,8 @@ const context = vm.createContext({
   renderRestoredActions() {},
   applyQueueView() {}, updateBulkActionButtons() {}, setPauseButtonVisible() {},
   renderPauseControls() {}, initUpdatePanel() {},
+  // 详情列的预览格会真的去解码原图，这个测试只关心格子上写了什么字。
+  loadOriginalImage() {},
   loadCpuSetting: async () => {},
   invoke: async (command, args) => {
     invoked.push([command, args]);
@@ -103,13 +110,13 @@ const context = vm.createContext({
     return null;
   },
 });
-const source = require('./app-slices.cjs').source;
-const slice = (from, to) => source.slice(source.indexOf(from), source.indexOf(to));
 installMediaWorkspaceStubs(context);
 installStateMachine(context);
 installQueueCore(context);
 installQueueRowPainter(context);
-vm.runInContext(slice('function basename(', 'function imageFileSrc('), context);
+installPathUtils(context);
+installDetailHelpers(context);
+vm.runInContext(slice('function imageTypeLabel(', '/// 来源行只写'), context);
 vm.runInContext(slice('function formatBytes(', '// ─── 页面导航'), context);
 vm.runInContext(slice('var VIEWS = ', '// ─── 压缩状态机'), context);
 vm.runInContext(slice('var RESTORE_CONFLICT_TEXT', 'async function exportAll('), context);
@@ -127,25 +134,46 @@ const entry = extra => Object.assign({
   status: 'compressed', restoredAt: null, outputModifiedAt: 0,
   sourceExists: true, backupExists: true, outputExists: true,
 }, extra);
-const text = node => (node.children.length ? node.children.map(text).join(' ') : node.textContent);
+const text = node => {
+  const own = node.textContent || '';
+  const kids = node.children.length ? node.children.map(text).join(' ') : '';
+  // querySelector 在桩里是按需造一个空壳子节点（innerHTML 不真解析），
+  // 真实代码往这些壳子上写字段，断言也要把它们算进这一行的文本。
+  const parts = node._parts ? Object.keys(node._parts).map(key => text(node._parts[key])).join(' ') : '';
+  return [own, kids, parts].filter(Boolean).join(' ');
+};
 const last = name => [...invoked].reverse().find(call => call[0] === name);
-/// 一行的按钮身份：dataset.historyAction 就是它要做的事，比数个数更能说明问题。
-const actionsOf = row => row.children[4].children.map(btn => btn.dataset.historyAction);
+/// 一行的按钮身份：dataset.historyAction 就是它要做的事。
+/// 按 .media-actions 这个格子找，不按第几个子节点数 —— 布局改了断言不该跟着抖。
+const actionsOf = row => row.querySelector('.media-actions').children
+  .map(btn => btn.dataset.historyAction);
 
 (async () => {
   historyReply = [entry({}), entry({ id: 'e2', fileName: 'b.png', sourcePath: '/Pictures/b.png' })];
   await context.refreshHistory();
-  assert.deepEqual(ids.historyList.children.map(row => row.className), ['history-item', 'history-item']);
+  // 历史行与本轮队列行共用同一套格子：同一 kinds 的事实放同一列。
+  assert.deepEqual(ids.historyList.children.map(row => row.className),
+    ['media-item done', 'media-item done']);
   assert.equal(ids.historyList.children.length, 2, 'renders newest first, as stored');
   assert.equal(ids.historyMeta.textContent, '2 条');
   assert.equal(ids.historyEmpty.hidden, true);
   const row = ids.historyList.children[0];
   assert.match(text(row), /a\.png/);
   assert.match(text(row), /\/Pictures/);
-  assert.match(text(row), /2\.0MB → 200\.0KB/);
-  assert.match(text(row), /节省 90\.0%/);
   assert.match(text(row), /webp-mozquant/);
   assert.match(text(row), /已压缩/);
+  // 密集列表里一行只占一列宽度：这一列报**产物多大**，原始→产物的那一对是它的出处，
+  // 挂在 title 上；省下多少进详情列的大数字，不挤在行里。
+  assert.equal(row.querySelector('.media-size').textContent, '200.0KB');
+  assert.equal(row.querySelector('.media-size').title, '2.0MB → 200.0KB');
+
+  // 选中第一项 = 详情列不是空的：这条记录此刻在磁盘上还剩什么，全在那里。
+  assert.equal(context.selectedHistoryKey, 'e1', '刷新历史必须自动选中第一条');
+  const detail = text(ids.historyDetailBody);
+  assert.match(detail, /-90\.0%/, '节省率是详情列的大数字');
+  assert.match(detail, /2\.0MB → 200\.0KB/);
+  assert.match(detail, /a\.png/);
+  assert.match(detail, /原图备份/);
 
   // 一行的按钮 = 这条记录此刻真能做到的事；只有覆盖过且备份、原位置都在才谈得上恢复。
   assert.deepEqual(actionsOf(row), ['save', 'compare', 'restore', 'finder', 'log'],
@@ -165,7 +193,7 @@ const actionsOf = row => row.children[4].children.map(btn => btn.dataset.history
   // 删除这次压缩结果 = 同一个后端服务、同样只交 historyId，前端不碰文件路径。
   invoked.length = 0;
   toasts.length = 0;
-  suffixRow.children[4].children[2].handlers.click();
+  suffixRow.querySelector('.media-actions').children[2].handlers.click();
   await flush();
   // 跨 vm 上下文的对象比不了引用，逐字段来。
   assert.equal(last('restore_history_entry')[1].historyId, 'e3');
@@ -204,7 +232,7 @@ const actionsOf = row => row.children[4].children.map(btn => btn.dataset.history
       file: '/Pictures/a.png', success: true, outputMode: mode,
       outputPath: '/Pictures/a.png',
     });
-    return queueRow.querySelector('.queue-item-actions').children.map(b => b.title);
+    return queueRow.querySelector('.media-actions').children.map(b => b.title);
   };
   assert.ok(queueTitles('replace').includes('恢复原图'), '覆盖模式仍然叫恢复原图');
   const suffixTitles = queueTitles('suffix');
@@ -215,10 +243,17 @@ const actionsOf = row => row.children[4].children.map(btn => btn.dataset.history
   const recovery = context.historyRow(
     entry({ id: 'recovery-k1', status: 'recoveryAvailable', savings: 0, algorithm: 'recovery' }));
   const recoveryText = text(recovery);
-  assert.match(recoveryText, /检测到可恢复的原图备份/);
+  assert.ok(recoveryText.includes('明细已丢失（按原图备份重建）'), '重建条目在行上就写清明细没了');
   assert.doesNotMatch(recoveryText, /节省/, '没有真实明细就不许报一个算出来的 0.0%');
-  assert.match(recoveryText, /按备份重建/);
   assert.ok(actionsOf(recovery).includes('restore'), '重建条目必须给出恢复按钮');
+  // 详情列把"为什么没有明细"讲完整，而不是只给一个状态词。
+  context.historyEntries = [entry({ id: 'recovery-k1', status: 'recoveryAvailable', savings: 0, algorithm: 'recovery' })];
+  context.selectedHistoryKey = 'recovery-k1';
+  ids.historyDetailBody.children.length = 0;
+  ids.historyDetailBody._parts = {};
+  context.renderHistoryDetail();
+  assert.ok(text(ids.historyDetailBody).includes('这条记录是从备份目录重建的'));
+  assert.ok(!text(ids.historyDetailBody).includes('0.0%'), '重建条目不许编一个节省率');
   assert.deepEqual(
     actionsOf(context.historyRow(
       entry({ id: 'r2', status: 'recoveryAvailable', backupExists: false }))),
@@ -249,7 +284,7 @@ const actionsOf = row => row.children[4].children.map(btn => btn.dataset.history
   assert.deepEqual(Object.keys(last('restore_original')[1]).sort(), ['filePath', 'force'], '主队列只交 filePath');
   assert.equal(context.queueItems.get('/Pictures/a.png').state, 'restored', '恢复过的项离开结果集');
   assert.equal(context.queueItems.get('/Pictures/a.png').result, null, '结果一并清掉');
-  assert.equal(rowA.querySelector('.queue-item-status').textContent, '已恢复');
+  assert.equal(rowA.querySelector('.media-meta').textContent, '已恢复');
 
   // 恢复一条旧历史时，同路径新导入的待压缩项仍是新任务，不能跟着变 restored。
   context.queueItems.set('/Pictures/a.png', {
@@ -284,17 +319,18 @@ const actionsOf = row => row.children[4].children.map(btn => btn.dataset.history
   assert.deepEqual(Array.from(context.queueResults(), item => item.file),
     ['/Pictures/c.png'], '失败行留在队列里');
 
-  // 页面切换只动 display：队列数据必须原样留着。
+  // 页面切换只改 pane 的 hidden：队列数据与正在跑的任务一概不动。
   context.showView('history');
   await flush();
   assert.equal(context.currentView, 'history');
   assert.deepEqual(context.files, ['/Pictures/a.png', '/Pictures/b.png', '/Pictures/c.png']);
-  assert.equal(ids.mainView.style.display, 'none');
-  assert.equal(ids.historyView.style.display, '');
+  assert.equal(ids.mainView.hidden, true);
+  assert.equal(ids.historyView.hidden, false);
   context.showView('settings');
-  assert.equal(ids.settingsView.style.display, '');
+  assert.equal(ids.settingsView.hidden, false);
+  assert.equal(ids.historyView.hidden, true, '离开历史页要把它收起来');
   context.showView('nonsense');
-  assert.equal(ids.mainView.style.display, '', 'unknown view falls back to main');
+  assert.equal(ids.mainView.hidden, false, 'unknown view falls back to main');
 
   // ── 原图备份保留时间：「不保留」= 0，是一个真实档位而不是"没设置" ──
   // 清理只有一个时机：关闭应用。两条文案都不许再说"下次启动"。

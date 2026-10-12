@@ -75,10 +75,18 @@ enum SortKey: String, CaseIterable {
     }
 }
 
-// MARK: - App Page（主窗口内部页面：与 Tauri 前端 showView 一致）
+// MARK: - App Page（rail 目的地：本轮 / 历史 / 设置；切换不销毁队列，也不打断压缩）
 
 enum AppPage: String, CaseIterable {
     case main, history, settings
+
+    var railLabel: String {
+        switch self {
+        case .main: return "本轮"
+        case .history: return "历史"
+        case .settings: return "设置"
+        }
+    }
 }
 
 // MARK: - AppState
@@ -96,9 +104,16 @@ final class AppState: ObservableObject {
     /// 当前这个按钮上该写什么（开始 / 继续 / 完成 / 处理完成·N 失败）。
     @Published private(set) var compressButtonText = ""
 
-    // 设置 UI
+    // 意图栏 UI
+    /// 当前图片意图；改动任何原始参数会切到 `.custom`（契约：intent-model.md）。
+    @Published private(set) var intent: ImageIntent = .balanced
+    /// 原始参数折叠区（默认折叠；HistoryStoreCheck [30] 钉住初值与"只由视图点击切换"）。
     @Published var settingsExpanded = false
-    /// 是否已导入过文件：与 Tauri 一致，压缩设置面板在首次导入后才显示
+    /// 已选中队列行的路径；详情栏据此画单件详情，nil 时画本轮汇总。
+    @Published var selectedPath: String?
+    /// 已选中历史记录 id（历史页同样是列表 + 详情两栏）。
+    @Published var selectedHistoryID: String?
+    /// 是否已导入过文件：空队列时工作列显示拖拽区
     @Published var hasImported = false
     @Published var autoCompress = false
     @Published var sortKey: SortKey = .importOrder
@@ -421,27 +436,51 @@ final class AppState: ObservableObject {
         items.compactMap(\.result).filter { $0.success }
     }
 
-    // MARK: - Settings summary
+    // MARK: - Intent / 请求编译
 
-    var settingsSummary: String {
-        var parts: [String] = []
-        if autoCompress { parts.append("自动") }
-        if options.processingMode == .system {
-            parts.append("系统")
-            parts.append(options.outputFormat.label)
-            let sizeLabel = options.systemImageSize.label
-            parts.append(sizeLabel.split(separator: "（").first.map(String.init) ?? sizeLabel)
-        } else {
-            parts.append("Q\(options.quality)")
-            parts.append(options.outputFormat == .original ? "原格式" : options.outputFormat.label.uppercased())
-            parts.append(options.smartMode ? "智能" : "标准")
-        }
-        switch options.outputMode {
-        case .replace: parts.append("覆盖")
-        case .suffix: parts.append("后缀 \(options.outputSuffix)")
-        case .folder: parts.append("目录")
-        }
-        return parts.joined(separator: " · ")
+    /// 意图编译后的实际发送请求（非 custom 意图把常量写回原始参数，屏幕所见即所发）。
+    var compiledRequest: CompressOptions { intent.apply(to: options) }
+
+    /// 智能路由：真实引擎行为（compressSmart 的候选搜索），由意图决定何时启用。
+    var usesSmartRouting: Bool {
+        options.processingMode == .advanced && intent.usesSmartRouting
+    }
+
+    /// 选中意图的屏幕摘要（详情栏空态与意图栏都用它）。
+    var activeIntentSummary: String { intent.requestSummary(base: options) }
+
+    /// 选择意图：把编译常量写回原始参数并持久化。
+    func selectIntent(_ next: ImageIntent) {
+        intent = next
+        options = next.apply(to: options)
+        saveSettings()
+    }
+
+    // 原始参数编辑：改一处即切 custom（契约：Editing any raw parameter switches intent to custom）。
+    func setQuality(_ value: Int) {
+        options.quality = min(max(value, 1), 100)
+        markCustom()
+    }
+
+    func setOutputFormat(_ value: OutputFormat) {
+        options.outputFormat = value
+        markCustom()
+    }
+
+    func setMaxDimension(_ value: Int?) {
+        options.maxDimensionPx = value.map { max($0, 1) }
+        markCustom()
+    }
+
+    /// 预算是 targetSize 意图的输入而非原始参数：该意图下编辑保持意图不变。
+    func setBudget(_ value: Int64?) {
+        options.maxOutputBytes = value.map { max($0, 1) }
+        if intent != .targetSize { markCustom() } else { saveSettings() }
+    }
+
+    private func markCustom() {
+        intent = .custom
+        saveSettings()
     }
 
     // MARK: - Version
@@ -495,46 +534,47 @@ final class AppState: ObservableObject {
         d.set(options.preserveMetadata, forKey: "sizqo.setting-preserveMetadata")
         d.set(options.quality, forKey: "sizqo.setting-quality")
         d.set(options.outputFormat.rawValue, forKey: "sizqo.setting-outputFormat")
-        d.set(options.backend.rawValue, forKey: "sizqo.setting-backend")
-        d.set(options.effort.rawValue, forKey: "sizqo.setting-effort")
-        d.set(options.convertToWebp, forKey: "sizqo.setting-convertToWebp")
-        d.set(options.smartMode, forKey: "sizqo.setting-smartMode")
         d.set(options.outputMode.rawValue, forKey: "sizqo.setting-outputMode")
         d.set(options.outputSuffix, forKey: "sizqo.setting-outputSuffix")
         d.set(autoCompress, forKey: "sizqo.setting-autoCompress")
+        d.set(intent.rawValue, forKey: "sizqo.setting-intent")
+        // 0 = 不限制（UserDefaults 没有"缺省 nil"的标量写法）。
+        d.set(options.maxDimensionPx ?? 0, forKey: "sizqo.setting-maxDimensionPx")
+        d.set(options.maxOutputBytes ?? 0, forKey: "sizqo.setting-maxOutputBytes")
     }
 
     private func loadSettings() {
         let d = UserDefaults.standard
-        // 旧版 Swift 默认关闭智能模式，而 Direct / App Store 一直默认开启。
-        // 一次性迁移旧设置，之后用户可以像其他压缩选项一样手动关闭。
-        let smartModeParityMigrationKey = "sizqo.setting-smartMode-direct-default-v1"
-        if !d.bool(forKey: smartModeParityMigrationKey) {
-            d.set(true, forKey: "sizqo.setting-smartMode")
-            d.set(true, forKey: smartModeParityMigrationKey)
-        }
         if let raw = d.string(forKey: "sizqo.setting-processingMode"), let v = ProcessingMode(rawValue: raw) { options.processingMode = v }
         if let raw = d.string(forKey: "sizqo.setting-systemImageSize"), let v = SystemImageSize(rawValue: raw) { options.systemImageSize = v }
         if d.object(forKey: "sizqo.setting-preserveMetadata") != nil { options.preserveMetadata = d.bool(forKey: "sizqo.setting-preserveMetadata") }
         if d.object(forKey: "sizqo.setting-quality") != nil { options.quality = d.integer(forKey: "sizqo.setting-quality") }
         if let raw = d.string(forKey: "sizqo.setting-outputFormat"), let v = OutputFormat(rawValue: raw) { options.outputFormat = v }
-        if let raw = d.string(forKey: "sizqo.setting-backend"), let v = CompressionBackend(rawValue: raw) { options.backend = v }
-        if d.object(forKey: "sizqo.setting-effort") != nil, let v = CompressionEffort(rawValue: d.integer(forKey: "sizqo.setting-effort")) { options.effort = v }
-        if d.object(forKey: "sizqo.setting-convertToWebp") != nil { options.convertToWebp = d.bool(forKey: "sizqo.setting-convertToWebp") }
-        if d.object(forKey: "sizqo.setting-smartMode") != nil { options.smartMode = d.bool(forKey: "sizqo.setting-smartMode") }
         if let raw = d.string(forKey: "sizqo.setting-outputMode"), let v = OutputMode(rawValue: raw) { options.outputMode = v }
         if let raw = d.string(forKey: "sizqo.setting-outputSuffix"), !raw.isEmpty { options.outputSuffix = raw }
         autoCompress = d.bool(forKey: "sizqo.setting-autoCompress")
+        if let raw = d.string(forKey: "sizqo.setting-intent"), let v = ImageIntent(rawValue: raw) { intent = v }
+        // 尺寸/预算上限按持久化值恢复；意图非 custom/targetSize 时，请求里的常量以编译为准。
+        if d.integer(forKey: "sizqo.setting-maxDimensionPx") > 0 { options.maxDimensionPx = d.integer(forKey: "sizqo.setting-maxDimensionPx") }
+        if d.integer(forKey: "sizqo.setting-maxOutputBytes") > 0 { options.maxOutputBytes = Int64(d.integer(forKey: "sizqo.setting-maxOutputBytes")) }
+        if intent == .targetSize, options.maxOutputBytes == nil {
+            options.maxOutputBytes = ImageIntent.defaultBudgetBytes
+        }
     }
 
     func resetSettings() {
         let keys = ["sizqo.setting-processingMode", "sizqo.setting-systemImageSize", "sizqo.setting-preserveMetadata",
-                    "sizqo.setting-quality", "sizqo.setting-outputFormat", "sizqo.setting-backend", "sizqo.setting-effort",
-                    "sizqo.setting-convertToWebp", "sizqo.setting-smartMode", "sizqo.setting-outputMode",
-                    "sizqo.setting-outputSuffix", "sizqo.setting-autoCompress"]
+                    "sizqo.setting-quality", "sizqo.setting-outputFormat", "sizqo.setting-outputMode",
+                    "sizqo.setting-outputSuffix", "sizqo.setting-autoCompress", "sizqo.setting-intent",
+                    "sizqo.setting-maxDimensionPx", "sizqo.setting-maxOutputBytes",
+                    // 已删除的假控件残留：引擎从不读它们，重置时顺手从磁盘清掉。
+                    "sizqo.setting-backend", "sizqo.setting-effort",
+                    "sizqo.setting-convertToWebp", "sizqo.setting-smartMode",
+                    "sizqo.setting-smartMode-direct-default-v1"]
         for key in keys { UserDefaults.standard.removeObject(forKey: key) }
         options = CompressOptions()
         autoCompress = false
+        intent = .balanced
         saveSettings()
         showToast("已还原默认设置")
     }
@@ -547,15 +587,6 @@ final class AppState: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [self] in
             toastVisible = false
         }
-    }
-
-    // MARK: - Effective format (convertToWebp when original)
-
-    var effectiveOutputFormat: OutputFormat {
-        if options.processingMode == .advanced && options.convertToWebp && options.outputFormat == .original {
-            return .webp
-        }
-        return options.outputFormat
     }
 
     // MARK: - Import
@@ -745,10 +776,10 @@ final class AppState: ObservableObject {
         compressButtonText = ""
         cancelBox.removeAll()
 
-        var opts = options
-        opts.outputFormat = effectiveOutputFormat
-        let useSmart = options.processingMode == .advanced
-            && (options.smartMode || effectiveOutputFormat != .original)
+        // 会话快照：意图编译后的请求。运行中改意图只影响下一轮（契约：running session
+        // keeps the snapshot it captured）。质量/尺寸/预算都来自意图编译，没有第二处真相。
+        let opts = compiledRequest
+        let useSmart = usesSmartRouting
 
         let group = DispatchGroup()
         let queue = DispatchQueue(label: "sizqo.compress", attributes: .concurrent)
@@ -925,10 +956,25 @@ final class AppState: ObservableObject {
         history: HistoryStore, transactions: OutputTransactionStore, retentionDays: Int
     ) -> CompressResult {
         let originalSize = (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int64) ?? 0
+        let started = Date()
         let engineResult = useSmart
             ? CompressionEngine.compressSmart(file: path, options: options)
             : CompressionEngine.compress(file: path, options: options)
+        let elapsedMs = Int(-started.timeIntervalSinceNow * 1000)
         var result = CompressResult(engine: engineResult, file: path, originalSize: originalSize, options: options)
+        result.elapsedMs = elapsedMs
+        // 源/输出像素尺寸：读得出就报，读不出如实缺省，不猜。
+        if let dims = imagePixelDimensions(file: path) {
+            result.sourceWidth = dims.width; result.sourceHeight = dims.height
+        }
+        if let dims = imagePixelDimensions(data: engineResult.compressed) {
+            result.outputWidth = dims.width; result.outputHeight = dims.height
+        }
+        // 诚实规则 3：重编像素的意图照实说明 EXIF/GPS 不带入；系统转换才是保留元数据的路径。
+        if options.processingMode == .advanced, engineResult.success,
+           engineResult.compressed.count != originalSize {
+            result.warnings.append("EXIF / GPS 等元数据不会带入输出（需保留请用系统转换）")
+        }
         if let failure = writeOutputStatic(
             &result, compressed: engineResult.compressed, options: options,
             history: history, transactions: transactions, retentionDays: retentionDays
@@ -1209,13 +1255,11 @@ final class AppState: ObservableObject {
         lines.append("文件: \(result.file)")
         lines.append("状态: \(result.success ? "成功" : "失败")")
         lines.append("")
-        lines.append("--- 压缩参数 ---")
+        lines.append("--- 本轮请求 ---")
         lines.append("quality: \(opts.quality)")
-        lines.append("smartMode: \(opts.smartMode)")
         lines.append("outputFormat: \(opts.outputFormat.rawValue)")
-        lines.append("backend: \(opts.backend.rawValue)")
-        lines.append("effort: \(opts.effort.rawValue)")
-        lines.append("convertToWebp: \(opts.convertToWebp)")
+        lines.append("maxDimensionPx: \(opts.maxDimensionPx.map(String.init) ?? "(不限)")")
+        lines.append("maxOutputBytes: \(opts.maxOutputBytes.map(String.init) ?? "(不限)")")
         lines.append("outputMode: \(opts.outputMode.rawValue)")
         lines.append("outputSuffix: \(opts.outputSuffix)")
         lines.append("")
@@ -1226,6 +1270,11 @@ final class AppState: ObservableObject {
             lines.append("压缩率: \(result.savingsSignedText)")
             lines.append("输出格式: \(result.outType.isEmpty ? "(未知)" : result.outType)")
             lines.append("算法: \(result.algorithm.isEmpty ? "(未知)" : result.algorithm)")
+            if let ms = result.elapsedMs { lines.append("耗时: \(ms) ms") }
+            if let budget = result.targetBytes {
+                lines.append("指定体积: \(CompressResult.formatBytesJS(budget)) · \(result.targetMet == true ? "已达成" : "未达成（照实报最接近的一次）")")
+            }
+            for warning in result.warnings { lines.append("说明: \(warning)") }
         } else {
             lines.append("压缩失败")
         }
@@ -1252,8 +1301,10 @@ final class AppState: ObservableObject {
               let existing = items[idx].result else { return nil }
         var opts = options
         opts.quality = quality
-        opts.backend = .auto
-        opts.effort = .balanced
+        // 预览是对原图按指定质量的一次裸重编码：意图附加的尺寸上限 / 预算不参与，
+        // 否则对比窗里滑到的质量会和实际发送的阶梯混在一起，读数失去意义。
+        opts.maxDimensionPx = nil
+        opts.maxOutputBytes = nil
         opts.outputMode = .suffix
         opts.outputFormat = OutputFormat(rawValue: existing.outType) ?? .original
         // 预览用引擎（非 smart，且不做「原图已最优」替换判断）

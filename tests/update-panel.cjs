@@ -8,7 +8,7 @@ const fs = require('node:fs');
 
 const html = fs.readFileSync('frontend/index.html', 'utf8');
 const css = fs.readFileSync('frontend/style.css', 'utf8');
-const source = fs.readFileSync('frontend/app.js', 'utf8');
+const { slice, source } = require('./app-slices.cjs');
 
 // ── 结构 ──────────────────────────────────────────────────────────────
 const settingsStart = html.indexOf('id="settingsView"');
@@ -67,8 +67,8 @@ function makeEnv(variant) {
     },
     listen: async (event, callback) => { env.progress = callback; return () => { env.progress = null; }; },
   });
-  const slice = (from, to) => source.slice(source.indexOf(from), source.indexOf(to));
-  vm.runInContext(slice('/// 更新面板在设置页里', 'function updateSettingsSummary('), context);
+  // 切片标记漂了就是"跑的不是这段代码"，所以用 harness 那个会校验的 slice。
+  vm.runInContext(slice('/// 更新面板在设置页里', 'function saveCompressSettings('), context);
   // 真实应用在启动的 Init IIFE 里注册全局进度监听（那段不在切片里，这里照做）：
   // 进度 UI 由这一份全局监听驱动，startUpdateDownload 自己不再订阅。
   context.listen('update-progress', event => context.applyUpdateProgress(event.payload || 0));

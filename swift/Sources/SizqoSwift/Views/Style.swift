@@ -1,22 +1,88 @@
 import SwiftUI
 
-// MARK: - 设计规范（对齐 frontend/style.css 的 Tauri 设计基准）
+// MARK: - 设计 token（明暗两套均由语义色 / primary 混合自动适配，不写死十六进制）
+
+/// 颜色：全部走 AppKit 语义色或 primary 蒙层，浅色 / 深色自动正确。
+enum SizqoPalette {
+    /// 窗口 / rail 底
+    static let window = Color(nsColor: .windowBackgroundColor)
+    /// 内容面板 / 卡片底
+    static let surface = Color(nsColor: .controlBackgroundColor)
+    /// 比 surface 更沉一层的凹陷区（列表条、统计条）
+    static let surfaceSunken = Color.primary.opacity(0.04)
+    /// 选中 / hover 强调底
+    static let emphasis = Color.primary.opacity(0.08)
+    static let emphasisSoft = Color.primary.opacity(0.05)
+    /// 发丝描边
+    static let hairline = Color(nsColor: .separatorColor).opacity(0.6)
+    /// 三级文字
+    static let tertiaryText = Color(nsColor: .tertiaryLabelColor)
+    /// 状态色（与队列行既有语义一致）
+    static let success = Color.green
+    static let danger = Color.red
+    static let caution = Color.orange
+    static let running = Color.accentColor
+    static let accentSoft = Color.accentColor.opacity(0.12)
+}
+
+/// 间距刻度（4 的基格 + 既有 14px 行内边距档）
+enum SizqoSpacing {
+    static let xxs: CGFloat = 2
+    static let xs: CGFloat = 4
+    static let sm: CGFloat = 8
+    static let md: CGFloat = 12
+    static let lg: CGFloat = 16
+    static let xl: CGFloat = 20
+    static let xxl: CGFloat = 28
+    /// 卡片 / 面板内水平留白（原 .queue-header 14px）
+    static let rowX: CGFloat = 14
+}
+
+/// 圆角刻度
+enum SizqoRadius {
+    static let control: CGFloat = 6
+    static let card: CGFloat = 8
+    static let chip: CGFloat = 10
+    static let panel: CGFloat = 12
+    static let pill: CGFloat = 999
+}
+
+/// 字号梯（沿用既有 10–18 密度，收成一条明确的 ramp）
+enum SizqoType {
+    static let micro = Font.system(size: 10)
+    static let microBold = Font.system(size: 10, weight: .semibold)
+    static let caption = Font.system(size: 11)
+    static let captionMedium = Font.system(size: 11, weight: .medium)
+    static let body = Font.system(size: 12)
+    static let bodyMedium = Font.system(size: 12, weight: .medium)
+    static let control = Font.system(size: 13, weight: .semibold)
+    static let statValue = Font.system(size: 14, weight: .bold, design: .rounded)
+    static let headline = Font.system(size: 15, weight: .semibold)
+    static func mono(_ size: CGFloat) -> Font { Font.system(size: size, design: .monospaced) }
+    static func digit(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        Font.system(size: size, weight: weight).monospacedDigit()
+    }
+}
+
+// MARK: - 设计规范（对齐 frontend/style.css 的 Tauri 设计基准；新代码优先用上面的 token）
 
 enum AppMetrics {
     /// Tauri --titlebar-height: 42px
     static let titleBarHeight: CGFloat = 42
     /// Tauri --radius: 8px（卡片圆角）
-    static let cardRadius: CGFloat = 8
+    static let cardRadius = SizqoRadius.card
     /// Tauri --radius-sm: 6px（按钮/行圆角）
-    static let smallRadius: CGFloat = 6
+    static let smallRadius = SizqoRadius.control
     /// Tauri .container: padding 12px 16px 16px
     static let containerPadding = EdgeInsets(top: 12, leading: 16, bottom: 16, trailing: 16)
     /// 卡片内水平留白（.settings-header / .queue-header 等的 14px）
-    static let sectionHPadding: CGFloat = 14
+    static let sectionHPadding = SizqoSpacing.rowX
     /// Tauri 卡片间距（.settings-panel/.queue-panel 的 margin-bottom: 12px）
-    static let cardSpacing: CGFloat = 12
-    /// Tauri .file-queue-list: max-height 260px
-    static let queueListMaxHeight: CGFloat = 260
+    static let cardSpacing = SizqoSpacing.md
+    /// 双栏工作区的详情栏宽度
+    static let detailColumnWidth: CGFloat = 340
+    /// rail 宽度（图标 + 两字标签）
+    static let railWidth: CGFloat = 76
 }
 
 // MARK: - 卡片容器（.settings-panel / .queue-panel 底板）
@@ -28,11 +94,11 @@ struct CardBackground: ViewModifier {
         content
             .background(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(Color(nsColor: .controlBackgroundColor))
+                    .fill(SizqoPalette.surface)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(Color(nsColor: .separatorColor).opacity(0.6), lineWidth: 0.5)
+                    .strokeBorder(SizqoPalette.hairline, lineWidth: 0.5)
             )
             .shadow(color: Color.black.opacity(0.07), radius: 1.5, y: 1)
     }
@@ -41,6 +107,11 @@ struct CardBackground: ViewModifier {
 extension View {
     func cardStyle(cornerRadius: CGFloat = AppMetrics.cardRadius) -> some View {
         modifier(CardBackground(cornerRadius: cornerRadius))
+    }
+
+    /// 面板底：无描边无投影的纯表面（三栏分区用）
+    func panelSurface() -> some View {
+        background(SizqoPalette.surface)
     }
 }
 
@@ -169,10 +240,9 @@ struct SmallButtonStyle: ButtonStyle {
     }
 }
 
-// MARK: - 页面头（.view-header：返回 + 标题 + 右侧操作，与 .queue-header 同密度）
+// MARK: - 页面头（列标题；rail 是唯一导航，这里不再放返回按钮）
 
 struct ViewHeaderView<Trailing: View>: View {
-    @EnvironmentObject var appState: AppState
     let title: String
     /// SizqoIcon glyph 名字（与前端 sprite 同一套 id），不是 SF Symbol。
     let icon: String
@@ -186,30 +256,16 @@ struct ViewHeaderView<Trailing: View>: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Button {
-                appState.showPage(.main)
-            } label: {
-                Label {
-                    Text("返回")
-                } icon: {
-                    SizqoIcon(name: SizqoIconName.chevronLeft, size: 15)
-                }
-                .labelIconToTextSpacing(3)
-            }
-            .buttonStyle(GhostButtonStyle())
-            .keyboardShortcut(.cancelAction)
-            .help("返回主页面（Esc）")
-
             HStack(spacing: 5) {
-                SizqoIcon(name: icon, size: 15)
-                Text(title).font(.system(size: 13, weight: .semibold))
+                SizqoIcon(name: icon, size: 15, color: .accentColor)
+                Text(title).font(SizqoType.control)
             }
             .foregroundColor(.primary)
 
             Spacer()
             trailing
         }
-        .padding(.horizontal, AppMetrics.sectionHPadding)
+        .padding(.horizontal, SizqoSpacing.rowX)
         .padding(.vertical, 10)
     }
 }

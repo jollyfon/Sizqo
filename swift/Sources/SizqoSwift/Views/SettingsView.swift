@@ -231,3 +231,26 @@ struct AppSettingsPageView: View {
         return text
     }
 }
+
+// MARK: - 设置工作区（rail「设置」目的地）
+//
+// 设置是 App 级行为（主题 / 保留档位 / CPU 上限 / 更新），与本轮意图正交：
+// 单列即可，不设详情栏。内容仍是同一份 AppSettingsPageView，不另造控件。
+
+struct SettingsWorkspaceView: View {
+    @EnvironmentObject var appState: AppState
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: SizqoSpacing.md) {
+                AppSettingsPageView()
+            }
+            .frame(maxWidth: 640)
+            .frame(maxWidth: .infinity)
+            .padding(SizqoSpacing.md)
+        }
+        .background(SizqoPalette.window)
+        // 保留档位等设置可能在别的页被改动，进入时刷新一次。
+        .onAppear { appState.refreshHistory() }
+    }
+}

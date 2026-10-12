@@ -617,6 +617,12 @@ input[type=range]::-webkit-slider-thumb {
     <div class="eyebrow">OctoShrink · v2.5.x · design board</div>
     <h1>macOS 26 Liquid Glass<br>分模块界面设计图</h1>
     <p class="lede">
+      <b>⚠ 这版图已过期（2026-10-12）：</b>它描述的是 OctoShrink v2.5.x 的「参数面板 + 队列」布局。
+      当前 shipped 的信息架构是<b>意图优先的双栏工作台</b>（左栏 本轮/历史/设置 · 清单 + 详情两栏 · 底部执行栏），
+      参数面板由意图 chip 编译而来。本页保留为<b>玻璃层样式与 token 的历史参考</b>，
+      其中的 DOM 结构、<code>id</code> 与文案<b>不再</b>与 <code>frontend/index.html</code> 一致；
+      交互与信息架构的唯一真相来源是 <a href="../core/intent-model.md">core/intent-model.md</a>
+      与 <a href="../core/state-machine.md">core/state-machine.md</a>。<br>
       每个功能模块单独一帧，共 <b>8 帧</b>。图上所有结构都是<b>仓库里真实存在的 DOM</b>：类名照抄
       <b>frontend/index.html</b> 与 <b>frontend/compare.html</b>，颜色与圆角照抄 <b>frontend/style.css</b> 的 token 名与取值，
       状态文案照抄 <b>frontend/app.js</b> / <b>compare_window.js</b>。Swift 原生线在每帧的 <b>impl</b> 行给出对应 SwiftUI 视图与

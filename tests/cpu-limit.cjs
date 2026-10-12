@@ -2,7 +2,9 @@
 const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
-const { installStateMachine, installQueueCore } = require('./app-slices.cjs');
+const {
+  source, slice, installStateMachine, installQueueCore, installActionText, installMediaWorkspaceStubs,
+} = require('./app-slices.cjs');
 
 function field(extra) {
   return Object.assign({
@@ -36,7 +38,6 @@ const context = vm.createContext({
   queueItems: new Map(Array.from({ length: 20 }, (_, i) => [`/img-${i}.png`, {
     path: `/img-${i}.png`, state: 'pending', result: null, originalSize: null,
   }])),
-  processingMode: 'advanced',
   document: { getElementById: id => elements[id] || null },
   applyQueueView() {}, showToast(message) { calls.push(['toast', message]); },
   iconMarkup: name => '<svg><use href="#icon-' + name + '"></use></svg>',
@@ -59,10 +60,12 @@ const context = vm.createContext({
     return null;
   },
 });
-const source = require('./app-slices.cjs').source;
-const slice = (from, to) => source.slice(source.indexOf(from), source.indexOf(to));
+// CPU 那一段要写的是设置页里的控件；工作台其余部分（运行条、详情列、意图条）
+// 对这个测试是噪音，统一由 harness 补桩 —— 但 renderStartButton 除外，
+// 摘要里的 CPU 数字要真的画到主按钮上才验得出。
+installMediaWorkspaceStubs(context);
 vm.runInContext(slice('function updateQueueSummary(', 'function toggleQueueSortDirection('), context);
-vm.runInContext(slice('function processingActionText(', 'function setProcessingMode('), context);
+installActionText(context);
 installQueueCore(context);
 vm.runInContext(slice('function renderStartButton(', 'function setPauseButtonVisible('), context);
 installStateMachine(context);

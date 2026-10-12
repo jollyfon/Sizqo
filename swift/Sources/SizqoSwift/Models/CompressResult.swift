@@ -1,4 +1,6 @@
 import Foundation
+import ImageIO
+import CoreGraphics
 
 struct EngineResult {
     var success: Bool
@@ -6,6 +8,12 @@ struct EngineResult {
     var outType: String
     var algorithm: String
     var error: String?
+    /// 指定体积求解：预算（字节），仅 targetSize 路径有值
+    var targetBytes: Int64? = nil
+    /// 达成与否照实写：没打中预算绝不报成达成
+    var targetMet: Bool? = nil
+    /// 缩放 / 未达预算 / 元数据等如实说明
+    var warnings: [String] = []
 }
 
 struct CompressResult: Identifiable {
@@ -23,6 +31,15 @@ struct CompressResult: Identifiable {
     var outputMode: String?
     /// 本批次使用的压缩参数快照（复制日志用，与 Tauri 的 result.compressOptions 对应）
     var options: CompressOptions?
+    /// 以下与契约「CompressResult gains optional fields」对齐，均为可选、缺省即不显示。
+    var elapsedMs: Int?
+    var sourceWidth: Int?
+    var sourceHeight: Int?
+    var outputWidth: Int?
+    var outputHeight: Int?
+    var targetBytes: Int64?
+    var targetMet: Bool?
+    var warnings: [String] = []
 
     var originalSizeFormatted: String { Self.formatBytes(originalSize) }
     var compressedSizeFormatted: String { Self.formatBytes(compressedSize) }
@@ -57,6 +74,9 @@ struct CompressResult: Identifiable {
         self.algorithm = engine.algorithm
         self.error = engine.error
         self.options = options
+        self.targetBytes = engine.targetBytes
+        self.targetMet = engine.targetMet
+        self.warnings = engine.warnings
     }
 
     /// 历史页要复用对比窗口/复制日志那一套，但记录里只有大小、没有字节本身。
@@ -174,6 +194,27 @@ func detectImageType(path: String) -> String {
         }
     }
     return "unknown"
+}
+
+// MARK: - 尺寸读取（详情栏的源/输出像素尺寸；读不出来就如实缺省）
+
+func imagePixelDimensions(file: String) -> (width: Int, height: Int)? {
+    let url = URL(fileURLWithPath: file)
+    guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+          let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
+          let w = props[kCGImagePropertyPixelWidth] as? Int,
+          let h = props[kCGImagePropertyPixelHeight] as? Int
+    else { return nil }
+    return (w, h)
+}
+
+func imagePixelDimensions(data: Data) -> (width: Int, height: Int)? {
+    guard let src = CGImageSourceCreateWithData(data as CFData, nil),
+          let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
+          let w = props[kCGImagePropertyPixelWidth] as? Int,
+          let h = props[kCGImagePropertyPixelHeight] as? Int
+    else { return nil }
+    return (w, h)
 }
 
 /// 与 Tauri 后端 collect_image_files 的支持扩展名保持一致

@@ -4,10 +4,43 @@ import CoreGraphics
 import UniformTypeIdentifiers
 
 enum CompressionEngine {
+    /// 指定体积求解阶梯：与 Rust 线 `budget_ladder` **同一张表** —— 先只降质量
+    /// （80/65/50），质量到底才动尺寸（2560/1920/1280 · 65/60/55），最多 6 次编码。
+    /// `cap = nil` 的档位不强加尺寸，但用户在自定义里填的上限仍按 min 合并进去。
+    static let targetLadder: [(cap: Int?, quality: Int)] = [
+        (nil, 80), (nil, 65), (nil, 50), (2560, 65), (1920, 60), (1280, 55),
+    ]
+
+    /// 最多几次编码（与 Rust `BUDGET_ATTEMPT_LIMIT` 一致：搜索必须可中断、可预期）。
+    static let budgetAttemptLimit = 6
+
+    /// 阶梯档位与用户上限合并（与 Rust `merge_cap` 一致）：都有值时取更小的。
+    static func mergeCap(user: Int?, rung: Int?) -> Int? {
+        switch (user, rung) {
+        case let (u?, r?): return min(u, r)
+        case let (u?, nil): return u
+        case let (nil, r?): return r
+        case (nil, nil): return nil
+        }
+    }
+
     static func compress(file: String, options: CompressOptions) -> EngineResult {
         if options.processingMode == .system {
             return SystemImageConverter.convert(file: file, options: options)
         }
+        if let budget = options.maxOutputBytes {
+            return solveToBudget(file: file, options: options, budget: budget)
+        }
+        if options.maxDimensionPx != nil {
+            return encodeWithDimensionCap(file: file, options: options) { f, o in
+                encodeAdvanced(file: f, options: o)
+            }
+        }
+        return encodeAdvanced(file: file, options: options)
+    }
+
+    /// 类型分发：与旧 `compress` 主体一致（不含系统转换 / 上限 / 预算处理）。
+    private static func encodeAdvanced(file: String, options: CompressOptions) -> EngineResult {
         let imgType = detectImageType(path: file)
         if options.outputFormat != .original {
             return compressToFormat(file: file, target: options.outputFormat.rawValue, options: options)
@@ -28,12 +61,25 @@ enum CompressionEngine {
     }
 
     /// 智能模式：与 Tauri `compress_smart` 对齐——PNG 同时尝试 pngquant 与 WebP，取体积更小者。
+    /// 候选集合由引擎决定，三轨一致；意图只给质量与约束，不许在某一轨偷偷多试一种编码。
     static func compressSmart(file: String, options: CompressOptions) -> EngineResult {
         if options.processingMode == .system {
             return SystemImageConverter.convert(file: file, options: options)
         }
         var opts = options
         if opts.quality <= 0 { opts.quality = analyzeQuality(file: file) }
+        if opts.maxOutputBytes != nil {
+            return solveToBudget(file: file, options: opts, budget: opts.maxOutputBytes!)
+        }
+        if opts.maxDimensionPx != nil {
+            return encodeWithDimensionCap(file: file, options: opts) { f, o in
+                smartEncode(file: f, options: o)
+            }
+        }
+        return smartEncode(file: file, options: opts)
+    }
+
+    private static func smartEncode(file: String, options opts: CompressOptions) -> EngineResult {
         if opts.outputFormat != .original {
             return compressToFormat(file: file, target: opts.outputFormat.rawValue, options: opts)
         }
@@ -49,6 +95,143 @@ enum CompressionEngine {
         }
         return candidates.min(by: { $0.compressed.count < $1.compressed.count })
             ?? compress(file: file, options: opts)
+    }
+
+    // MARK: - 尺寸上限（只缩不放大）
+
+    /// 缩一次到临时文件（保持源格式与 alpha），再走给定编码闭包；结束时删临时文件。
+    private static func encodeWithDimensionCap(
+        file: String, options: CompressOptions,
+        encode: (String, CompressOptions) -> EngineResult
+    ) -> EngineResult {
+        guard let cap = options.maxDimensionPx else {
+            return encode(file, options)
+        }
+        guard let temp = downscaledTempFile(file: file, cap: cap) else {
+            var result = encode(file, options)
+            if let reason = capSkipReason(file: file) { result.warnings.append(reason) }
+            return result
+        }
+        defer { try? FileManager.default.removeItem(atPath: temp) }
+        var rung = options
+        rung.maxDimensionPx = nil // 已物理缩放，避免递归
+        var result = encode(temp, rung)
+        result.warnings.append("已按最长边上限 \(cap) px 缩放（只缩不放大）")
+        return result
+    }
+
+    /// 不动尺寸的情形说明（GIF 动图 / 无法解码）；nil = 本可以缩放或无需缩放。
+    private static func capSkipReason(file: String) -> String? {
+        if detectImageType(path: file) == "gif" {
+            return "动图不按尺寸上限缩放（单帧重编码会丢帧），已保持原尺寸"
+        }
+        if longestEdge(file: file) == nil {
+            return "无法读取图像尺寸，尺寸上限未生效"
+        }
+        return nil
+    }
+
+    private static func longestEdge(file: String) -> (edge: Int, width: Int, height: Int)? {
+        let url = URL(fileURLWithPath: file)
+        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
+              let w = props[kCGImagePropertyPixelWidth] as? Int,
+              let h = props[kCGImagePropertyPixelHeight] as? Int
+        else { return nil }
+        return (max(w, h), w, h)
+    }
+
+    /// 只缩不放大：最长边超过上限时输出缩放后的同格式临时文件；无需缩放/不宜处理时返回 nil。
+    /// ImageIO thumbnail 管线保持 alpha 通道不丢，重采样语义与 Rust 侧 Lanczos3 同一意图
+    /// （尺寸收敛优先于逐像素等算法）——这是这里选它而不是自写 vImage 核的原因。
+    private static func downscaledTempFile(file: String, cap: Int) -> String? {
+        guard let (edge, _, _) = longestEdge(file: file), edge > cap else { return nil }
+        let imgType = detectImageType(path: file)
+        // 动图单帧缩放会丢帧，交给调用方按原尺寸处理（诚实跳过 + 警告）。
+        guard imgType != "gif" else { return nil }
+        let url = URL(fileURLWithPath: file)
+        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        let thumbOpts: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: cap,
+        ]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(src, 0, thumbOpts as CFDictionary) else { return nil }
+        let uti: CFString
+        let ext: String
+        switch imgType {
+        case "png": (uti, ext) = (UTType.png.identifier as CFString, "png")
+        case "jpg": (uti, ext) = (UTType.jpeg.identifier as CFString, "jpg")
+        case "webp": (uti, ext) = (UTType.webP.identifier as CFString, "webp")
+        case "heic": (uti, ext) = (UTType.heic.identifier as CFString, "heic")
+        default: return nil
+        }
+        let tmp = scratchFile(ext)
+        guard let dest = CGImageDestinationCreateWithURL(
+            URL(fileURLWithPath: tmp) as CFURL, uti, 1, nil
+        ) else { return nil }
+        // JPEG 临时帧用近无损质量，避免在正式编码前叠加第二次有损。
+        let destOpts: [CFString: Any]? = imgType == "jpg"
+            ? [kCGImageDestinationLossyCompressionQuality: 0.98] : nil
+        CGImageDestinationAddImage(dest, image, destOpts as CFDictionary?)
+        guard CGImageDestinationFinalize(dest),
+              FileManager.default.contents(atPath: tmp) != nil
+        else {
+            try? FileManager.default.removeItem(atPath: tmp)
+            return nil
+        }
+        return tmp
+    }
+
+    // MARK: - 指定体积求解（≤6 次编码）
+
+    /// 三条硬规则（与 Rust `solve_to_budget` 一字不差）：**原图已在预算内就不重编码**；
+    /// **命中即停**；**没命中时返回全程最小的有效候选 + targetMet=false + 把实际达到的体积
+    /// 和预算都说出去**。比原图大的档位在规则 7 下不是候选，不能当成"压出来了"。
+    private static func solveToBudget(file: String, options: CompressOptions, budget: Int64) -> EngineResult {
+        let original = (try? Data(contentsOf: URL(fileURLWithPath: file))) ?? Data()
+        let sourceType = detectImageType(path: file)
+        let originalSize = Int64(original.count)
+        if originalSize <= budget {
+            var kept = noImprovement(original: original, outType: sourceType,
+                                     algorithm: "指定体积", originalSize: original.count)
+            kept.targetBytes = budget
+            kept.targetMet = true
+            kept.warnings.append("原图 \(CompressResult.formatBytesJS(originalSize)) 已在目标 \(CompressResult.formatBytesJS(budget)) 以内，未做无谓的重编码")
+            return kept
+        }
+        var best: EngineResult?
+        var attempts = 0
+        for rung in targetLadder.prefix(budgetAttemptLimit) {
+            attempts += 1
+            var step = options
+            step.quality = rung.quality
+            step.maxOutputBytes = nil // 递归闸门：搜索内部只许走一次编码
+            step.maxDimensionPx = mergeCap(user: options.maxDimensionPx, rung: rung.cap)
+            let r = encodeWithDimensionCap(file: file, options: step) { f, o in
+                encodeAdvanced(file: f, options: o)
+            }
+            guard r.success, !r.compressed.isEmpty else { continue }
+            let size = Int64(r.compressed.count)
+            if size >= originalSize { continue } // 规则 7：比原图大的输出不是赢
+            if best == nil || r.compressed.count < best!.compressed.count { best = r }
+            if size <= budget { break } // 命中即停，不做无谓的第二次编码
+        }
+        guard var closest = best else {
+            var kept = noImprovement(original: original, outType: sourceType,
+                                     algorithm: "指定体积", originalSize: original.count)
+            kept.targetBytes = budget
+            kept.targetMet = false
+            kept.warnings.append("指定体积 \(CompressResult.formatBytesJS(budget)) 未达到：\(attempts) 次尝试里没有任何一档产出比原图 \(CompressResult.formatBytesJS(originalSize)) 更小的有效文件，已保留原图")
+            return kept
+        }
+        let achieved = Int64(closest.compressed.count)
+        closest.targetBytes = budget
+        closest.targetMet = achieved <= budget
+        if achieved > budget {
+            closest.warnings.append("指定体积 \(CompressResult.formatBytesJS(budget)) 未达到：最激进的一档也只压到 \(CompressResult.formatBytesJS(achieved))（已给出这次真正产出的最小文件，不能当作达成目标）")
+        }
+        return closest
     }
 
     /// 按文件体积推测质量（仅当 quality 为 0 时使用，与 Tauri analyze_quality 一致）

@@ -27,6 +27,7 @@ fn fail(original: Vec<u8>, out_type: &str, message: impl Into<String>) -> Engine
         out_type: out_type.into(),
         algorithm: "macOS ImageIO".into(),
         error: Some(message.into()),
+        ..Default::default()
     }
 }
 
@@ -47,6 +48,18 @@ fn max_pixel_for(size: &str, actual_max_pixel: isize) -> isize {
         "medium" => MEDIUM_MAX_PIXEL.min(actual_max_pixel),
         "small" => SMALL_MAX_PIXEL.min(actual_max_pixel),
         _ => actual_max_pixel,
+    }
+}
+
+/// 把用户要求的 `maxDimensionPx` 夹进 ImageIO 的最长边。
+///
+/// 系统转换自带 1280/640/320 尺寸档，这两个约束必须**取更严的那个**而不是互相覆盖：
+/// 上限比档位更宽松时不动原行为，比档位更严格时由 ImageIO 真正兑现（不是"看起来生效"）。
+/// 上限为 0 / 缺省时不改任何东西。
+fn apply_dimension_cap(longest_edge: isize, cap: Option<u32>) -> isize {
+    match cap {
+        Some(edge) if edge > 0 => longest_edge.min(edge as isize),
+        _ => longest_edge,
     }
 }
 
@@ -128,8 +141,10 @@ pub fn convert(file: &Path, options: &CompressOptions) -> EngineResult {
         return fail(original, out_type, "macOS 无法解码此图像");
     };
 
-    let actual_max =
+    let longest_edge =
         CGImage::width(Some(&full_image)).max(CGImage::height(Some(&full_image))) as isize;
+    // maxDimensionPx 在系统转换里同样要兑现（不是只给引擎线用），取尺寸档与上限的更严者。
+    let actual_max = apply_dimension_cap(longest_edge, options.max_dimension_px);
     let thumbnail_options =
         thumbnail_options(max_pixel_for(&options.system_image_size, actual_max));
     let typed_thumbnail_options: &CFDictionary<CFType, CFType> = &thumbnail_options;
@@ -174,6 +189,9 @@ pub fn convert(file: &Path, options: &CompressOptions) -> EngineResult {
             }
         ),
         error: None,
+        // 系统转换是唯一**保留**元数据的路径（properties 原样带进 ImageIO），
+        // 所以这里不产生"元数据已丢失"的告警；warnings 的其余来源由 engine 汇总。
+        ..Default::default()
     }
 }
 
@@ -188,6 +206,44 @@ mod tests {
         assert_eq!(max_pixel_for("medium", 4000), 640);
         assert_eq!(max_pixel_for("small", 4000), 320);
         assert_eq!(max_pixel_for("large", 800), 800);
+    }
+
+    /// 尺寸档与 maxDimensionPx 必须取**更严的那个**：上限不能静默覆盖尺寸档，
+    /// 尺寸档也不能把用户点名的上限放宽回去。
+    #[test]
+    fn the_dimension_cap_never_loosens_the_finder_size_preset() {
+        assert_eq!(apply_dimension_cap(4000, Some(800)), 800);
+        assert_eq!(apply_dimension_cap(4000, Some(8000)), 4000); // 只缩不放
+        assert_eq!(apply_dimension_cap(4000, None), 4000);
+        assert_eq!(apply_dimension_cap(4000, Some(0)), 4000);
+        assert_eq!(max_pixel_for("large", apply_dimension_cap(4000, Some(800))), 800);
+        assert_eq!(max_pixel_for("small", apply_dimension_cap(4000, Some(800))), 320);
+    }
+
+    #[tokio::test]
+    async fn the_system_conversion_path_honors_the_requested_longest_edge_cap() {
+        let temp = tempfile::tempdir().unwrap();
+        let input = temp.path().join("input.png");
+        image::RgbImage::from_pixel(900, 600, image::Rgb([10, 200, 30]))
+            .save(&input)
+            .unwrap();
+
+        let mut options = CompressOptions::default();
+        options.processing_mode = "system".into();
+        options.system_image_size = "actual".into(); // 尺寸档本不动尺寸，靠上限缩
+        options.output_format = "png".into();
+        options.max_dimension_px = Some(300);
+
+        let result = crate::engine::compress_image(&input, &options).await;
+        assert!(result.success, "{:?}", result.error);
+        let (width, height) = image::ImageReader::new(std::io::Cursor::new(&result.compressed))
+            .with_guessed_format()
+            .unwrap()
+            .into_dimensions()
+            .unwrap();
+        assert_eq!(width.max(height), 300);
+        assert_eq!(width, 300, "最长边必须是水平边");
+        assert_eq!(height, 200, "宽高比必须原样保持");
     }
 
     #[test]

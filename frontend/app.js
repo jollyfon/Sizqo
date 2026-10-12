@@ -146,12 +146,25 @@ var BUILD_VARIANT = (window.location.origin.indexOf('http://localhost') === 0) ?
   try { document.title = 'Sizqo (' + BUILD_VARIANT + ')'; } catch(e) {}
 })();
 
-// ─── 设置面板折叠 ─────────────────────────────────────────────────
-function toggleSettings() {
-  const panel = document.getElementById('settingsPanel');
-  if (!panel) return;
-  panel.classList.toggle('collapsed');
-}
+// ─── 意图状态（界面唯一入口，参数只是它的展开形式）───────────────
+// 规范见 core/intent-model.md：用户按「要多小」选择，参数由 SizqoIntents 编译。
+// 这里只存"用户此刻的意图 + 被编辑过的目标值"，真正的请求每轮从编译器现取。
+var imageIntent = {
+  intent: window.SizqoIntents.defaultImageIntentId(),
+  quality: 75,
+  outputFormat: 'original',
+  systemOutputFormat: 'original',
+  systemImageSize: 'actual',
+  preserveMetadata: true,
+  maxDimensionPx: null,
+  maxOutputBytes: 512 * 1024,
+};
+var videoIntent = { intent: window.SizqoIntents.defaultVideoIntentId(), targetMiB: 100 };
+// 选中项：清单与详情是同一份状态的两张脸，切换选中只重画详情。
+var selectedQueueFile = null;
+var selectedHistoryKey = null;
+// 本轮开始时冻结的意图快照：中途改意图不会让已完成的行的结论跟着变。
+var runIntentSnapshot = null;
 
 // State
 //
@@ -177,7 +190,6 @@ var queueItems = new Map();
 let pendingAutoCompress = false;
 let outputDir = null;
 let currentCompressOptions = null;
-let processingMode = 'advanced';
 var mediaFilter = 'all';
 var historyFilter = 'all';
 var mediaTaskSeq = 0;
@@ -192,22 +204,12 @@ var videoCoverBusy = false;
 
 // DOM Elements
 const dropzone = document.getElementById('dropzone');
-const settingsPanel = document.getElementById('settingsPanel');
-const resultsPanel = document.getElementById('resultsPanel');
-const resultsList = document.getElementById('resultsList');
 const qualitySlider = document.getElementById('qualitySlider');
 const qualityValue = document.getElementById('qualityValue');
-const statOriginal = document.getElementById('statOriginal');
-const statCompressed = document.getElementById('statCompressed');
-const totalSavings = document.getElementById('totalSavings');
-const totalRate = document.getElementById('totalRate');
-const resultCount = document.getElementById('resultCount');
-const resultTotalSavings = document.getElementById('resultTotalSavings');
 const outputDirDisplay = document.getElementById('outputDirDisplay');
 const outputDirRow = document.getElementById('outputDirRow');
 const outputSuffixRow = document.getElementById('outputSuffixRow');
 const outputSuffixInput = document.getElementById('outputSuffix');
-const videoSettingsPanel = document.getElementById('videoSettingsPanel');
 
 // Quality slider
 qualitySlider.addEventListener('input', () => {
@@ -217,12 +219,31 @@ qualitySlider.addEventListener('input', () => {
 function updateQualitySlider() {
   if (!qualitySlider) return;
   qualityValue.textContent = qualitySlider.value + '%';
-  const pct = qualitySlider.value;
-  qualitySlider.style.background = 'linear-gradient(90deg, var(--primary) ' + pct + '%, var(--slider-track) ' + pct + '%)';
+  // 滑轨填充只是读数指示，不做成"看起来像进度条"的装饰。
+  qualitySlider.style.background = 'linear-gradient(90deg, var(--accent) ' + qualitySlider.value + '%, var(--slider-track) ' + qualitySlider.value + '%)';
+}
+
+function isMacOS() {
+  return /Macintosh|Mac OS X/.test(navigator.userAgent);
+}
+
+/// 当前图片意图 → 引擎请求。每次要用的时候现编译：界面上不留"半个参数"。
+function imageRequestFromIntent() {
+  return window.SizqoIntents.compileImage(imageIntent, isMacOS());
+}
+
+/// 视频意图 → SizqoVideo 选项。自定义之外，控件只是意图的展开显示，
+/// 所以基准一律取默认值再叠意图，避免上一轮残留的参数混进来。
+function videoRequestFromIntent() {
+  var state = videoIntent.intent === 'videoCustom'
+    ? { intent: 'videoCustom', options: currentVideoOptions }
+    : { intent: videoIntent.intent, targetMiB: videoIntent.targetMiB };
+  return window.SizqoIntents.compileVideo(state, window.SizqoVideo.DEFAULT_OPTIONS, window.SizqoVideo);
 }
 
 function processingActionText(stage) {
-  var systemMode = processingMode === 'system';
+  // 正在跑 / 刚跑完的这一批按开跑时拍下的意图说话；还没开跑时跟着当前 chips。
+  var systemMode = (stage === 'progress' || stage === 'done') ? systemModeForRun() : systemModeActive();
   if (stage === 'progress') return systemMode ? localizeUiText('转换中…') : localizeUiText('压缩中…');
   if (stage === 'done') return systemMode ? localizeUiText('转换完成') : localizeUiText('压缩完成');
   // 「继续」= 队列里还有没处理的（停止之后又重新开始一轮）。
@@ -230,52 +251,344 @@ function processingActionText(stage) {
   return systemMode ? localizeUiText('开始转换') : localizeUiText('开始压缩');
 }
 
-function setProcessingMode(mode, skipSave) {
-  var isMac = /Macintosh|Mac OS X/.test(navigator.userAgent);
-  processingMode = (mode === 'system' && isMac) ? 'system' : 'advanced';
-
-  document.querySelectorAll('.processing-mode-label').forEach(function(label) {
-    label.classList.toggle('active', label.dataset.mode === processingMode);
-  });
-  var modeToggle = document.getElementById('processingModeToggle');
-  if (modeToggle) {
-    var advancedActive = processingMode === 'advanced';
-    modeToggle.classList.toggle('active', advancedActive);
-    modeToggle.setAttribute('aria-checked', advancedActive ? 'true' : 'false');
-    modeToggle.setAttribute('aria-label', localizeUiText('切换处理方式，当前为') + (advancedActive ? localizeUiText('高级压缩') : localizeUiText('系统转换')));
-  }
-  document.querySelectorAll('[data-processing-mode]').forEach(function(row) {
-    row.style.display = row.dataset.processingMode === processingMode ? 'flex' : 'none';
-  });
-
-  var autoLabel = document.getElementById('autoCompressLabel');
-  if (autoLabel) autoLabel.textContent = processingMode === 'system'
-    ? localizeUiText('拖入或选择后自动转换')
-    : localizeUiText('拖入或选择后自动压缩');
-  if (!isCompressing) {
-    var btnText = document.getElementById('compressBtnText');
-    if (btnText) btnText.innerHTML = '<svg class="symbol-icon"><use href="#icon-compress"/></svg> ' + processingActionText('idle');
-  }
-  if (!skipSave) saveCompressSettings();
-  updateSettingsSummary();
+// ─── 意图条（图片目标 / 视频目标）───────────────────────────────
+// 用户回答的是"要多小、给谁用"，参数由 SizqoIntents 编译（core/intent-model.md）。
+// 这一节只做三件事：画 chips、把编辑权交回 custom、把当前生效的结论说清楚。
+function intentChipIcon(id) {
+  if (id === 'targetSize' || id === 'videoTarget') return 'target-size';
+  if (id === 'systemConvert') return 'globe';
+  if (id === 'webSize') return 'globe';
+  return null;
 }
 
-function toggleProcessingMode() {
-  setProcessingMode(processingMode === 'system' ? 'advanced' : 'system');
+function renderIntentChips(containerId, list, activeId, onPick) {
+  var box = document.getElementById(containerId);
+  if (!box) return;
+  box.innerHTML = '';
+  list.forEach(function (intent) {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'chip' + (intent.id === activeId ? ' active' : '');
+    btn.dataset.intent = intent.id;
+    var icon = intentChipIcon(intent.id);
+    btn.innerHTML = (icon ? iconMarkup(icon, true) : '') + '<span>' + localizeUiText(intent.label) + '</span>';
+    btn.title = localizeUiText(intent.note || intent.label);
+    btn.setAttribute('aria-pressed', intent.id === activeId ? 'true' : 'false');
+    btn.addEventListener('click', onPick);
+    box.appendChild(btn);
+  });
+}
+
+function setImageIntent(id) {
+  if (imageIntent.intent === id) return;
+  var current = imageRequestFromIntent();
+  imageIntent.intent = id;
+  // custom 接手的是**此刻真实生效**的那套参数：预算模式下质量由阶梯决定、编译值是 0，
+  // seedCustom 会把它落回一个能用的数，而不是留一个假刻度在滑块上。
+  if (id === 'custom') Object.assign(imageIntent, window.SizqoIntents.seedCustom(current));
+  if (id === 'custom' || id === 'systemConvert') paintImageStateControls();
+  renderIntentBar();
+  saveCompressSettings();
+  renderDetailPane();
+}
+
+function setVideoIntent(id) {
+  if (videoIntent.intent === id) return;
+  videoIntent.intent = id;
+  // 切意图 = 换一套真实生效的参数：把控件摆成这套参数，别留上一套的假象。
+  applyVideoOptions(videoRequestFromIntent().options);
+  renderIntentBar();
+  saveVideoSettings();
+}
+
+/// 把意图编译出来的参数写回原始控件，让「更多参数」显示的就是此刻真正在跑的值。
+function paintImageRawControls(compiled) {
+  var options = compiled.options || {};
+  var setValue = function (id, value) {
+    var el = document.getElementById(id);
+    if (el && value != null) el.value = String(value);
+  };
+  if (qualitySlider && options.quality) qualitySlider.value = String(options.quality);
+  setValue('outputFormat', options.outputFormat);
+  setValue('systemOutputFormat', options.outputFormat);
+  setValue('systemImageSize', options.systemImageSize);
+  var preserve = document.getElementById('preserveMetadata');
+  if (preserve && options.preserveMetadata !== undefined) preserve.checked = options.preserveMetadata !== false;
+  var dimCap = document.getElementById('imageDimCap');
+  if (dimCap && options.maxDimensionPx) dimCap.value = String(options.maxDimensionPx);
+  var targetKib = document.getElementById('imageTargetKib');
+  if (targetKib && options.maxOutputBytes) targetKib.value = String(Math.round(options.maxOutputBytes / 1024));
+  updateQualitySlider();
+}
+
+/// custom / systemConvert 的权威是 imageIntent 里存的这几个字段（不是任何意图的编译结果）：
+/// 直接照状态铺，空值就留空 —— 留空是"没有上限"，填一个看起来像默认值的数字是撒谎。
+function paintImageStateControls() {
+  var setValue = function (id, value) {
+    var el = document.getElementById(id);
+    if (el) el.value = value === null || value === undefined ? '' : String(value);
+  };
+  setValue('qualitySlider', imageIntent.quality);
+  setValue('outputFormat', imageIntent.outputFormat);
+  setValue('systemOutputFormat', imageIntent.systemOutputFormat);
+  setValue('systemImageSize', imageIntent.systemImageSize);
+  setValue('imageDimCap', imageIntent.maxDimensionPx);
+  setValue('imageTargetKib', imageIntent.maxOutputBytes ? Math.round(imageIntent.maxOutputBytes / 1024) : null);
+  var preserve = document.getElementById('preserveMetadata');
+  if (preserve) preserve.checked = imageIntent.preserveMetadata !== false;
+  updateQualitySlider();
+}
+
+/// 原始控件反过来更新状态：custom 时控件是权威。
+function syncImageRawState() {
+  imageIntent.quality = parseInt(qualitySlider.value, 10);
+  var fmt = document.getElementById('outputFormat');
+  if (fmt) imageIntent.outputFormat = fmt.value;
+  var sysFmt = document.getElementById('systemOutputFormat');
+  if (sysFmt) imageIntent.systemOutputFormat = sysFmt.value;
+  var sysSize = document.getElementById('systemImageSize');
+  if (sysSize) imageIntent.systemImageSize = sysSize.value;
+  var preserve = document.getElementById('preserveMetadata');
+  if (preserve) imageIntent.preserveMetadata = preserve.checked;
+  var dimCap = document.getElementById('imageDimCap');
+  if (dimCap) imageIntent.maxDimensionPx = window.SizqoIntents.clampDimension(dimCap.value);
+  var targetKib = document.getElementById('imageTargetKib');
+  if (targetKib) imageIntent.maxOutputBytes = window.SizqoIntents.clampBytes(parseFloat(targetKib.value) * 1024);
+}
+
+/// 用户直接改原始参数：意图落到 custom，且**保留他刚改的那一项**。
+/// 先按 capture 阶段拦下事件，把当前意图的真实参数铺到控件上，再把这一项放回去 ——
+/// 否则接手的是"上一套意图没显示出来的值"，改完跳一大格。
+function claimRawEdit(kind, target) {
+  var customId = kind === 'video' ? 'videoCustom' : 'custom';
+  var state = kind === 'video' ? videoIntent : imageIntent;
+  if (state.intent === customId || !target || !target.id) return;
+  var editedId = target.id;
+  var editedIsCheck = target.type === 'checkbox';
+  var editedValue = editedIsCheck ? target.checked : target.value;
+  var compiled = kind === 'video' ? videoRequestFromIntent() : imageRequestFromIntent();
+  state.intent = customId;
+  if (kind === 'video') {
+    applyVideoOptions(compiled.options);
+  } else {
+    Object.assign(imageIntent, window.SizqoIntents.seedCustom(compiled));
+    paintImageStateControls();
+  }
+  var el = document.getElementById(editedId);
+  if (el) {
+    if (editedIsCheck) el.checked = editedValue;
+    else el.value = editedValue;
+  }
+  if (kind === 'image') syncImageRawState();
+  renderIntentBar();
+  saveCompressSettings();
+}
+
+function renderIntentTargetRow(imageCompiled, videoCompiled) {
+  var showBytes = imageIntent.intent === 'targetSize';
+  var showDim = imageIntent.intent === 'webSize';
+  var showMiB = videoIntent.intent === 'videoTarget';
+  var row = document.getElementById('intentTargetRow');
+  var bytesField = document.getElementById('targetBytesField');
+  var dimField = document.getElementById('targetDimField');
+  var miBField = document.getElementById('targetMiBField');
+  if (row) row.hidden = !(showBytes || showDim || showMiB);
+  if (bytesField) bytesField.hidden = !showBytes;
+  if (dimField) dimField.hidden = !showDim;
+  if (miBField) miBField.hidden = !showMiB;
+  if (showBytes && imageCompiled.options && imageCompiled.options.maxOutputBytes) {
+    var kib = document.getElementById('imageTargetKib');
+    var want = Math.round(imageCompiled.options.maxOutputBytes / 1024);
+    if (kib && kib.value !== String(want)) kib.value = String(want);
+  }
+  if (showDim && imageCompiled.options && imageCompiled.options.maxDimensionPx) {
+    var cap = document.getElementById('imageDimCap');
+    if (cap && cap.value !== String(imageCompiled.options.maxDimensionPx)) cap.value = String(imageCompiled.options.maxDimensionPx);
+  }
+  if (showMiB && videoCompiled.options && videoCompiled.options.targetMiB) {
+    var mib = document.getElementById('videoTargetMiBInput');
+    if (mib && mib.value !== String(videoCompiled.options.targetMiB)) mib.value = String(videoCompiled.options.targetMiB);
+  }
+  renderTargetPresetChips(showBytes);
+}
+
+/// 预算档位：点一下就是一个真实值，不是滑块上的装饰刻度。
+function renderTargetPresetChips(active) {
+  var box = document.getElementById('targetPresetChips');
+  if (!box) return;
+  box.innerHTML = '';
+  if (!active) return;
+  var intent = window.SizqoIntents.IMAGE_INTENTS.filter(function (i) { return i.id === 'targetSize'; })[0];
+  var current = imageRequestFromIntent().options.maxOutputBytes;
+  (intent && intent.presets ? intent.presets : []).forEach(function (preset) {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'chip' + (preset.bytes === current ? ' active' : '');
+    btn.textContent = localizeUiText(preset.label);
+    btn.addEventListener('click', function () {
+      var kib = document.getElementById('imageTargetKib');
+      if (kib) kib.value = String(Math.round(preset.bytes / 1024));
+      syncImageRawState();
+      renderIntentBar();
+      saveCompressSettings();
+    });
+    box.appendChild(btn);
+  });
+}
+
+/// 意图接管参数时，「更多参数」要说清楚现在谁说了算，并给出接手的入口。
+function renderAdvancedLock() {
+  var specs = [
+    { containerId: 'imageAdvancedRows', kind: 'image', intentId: imageIntent.intent, rawAttr: 'image', systemAttr: 'system' },
+    { containerId: 'videoAdvancedRows', kind: 'video', intentId: videoIntent.intent, rawAttr: null, systemAttr: null },
+  ];
+  specs.forEach(function (spec) {
+    var box = document.getElementById(spec.containerId);
+    if (!box) return;
+    var customId = spec.kind === 'video' ? 'videoCustom' : 'custom';
+    var owned = spec.intentId === customId
+      || (spec.kind === 'image' && spec.intentId === 'systemConvert');
+    var note = box.querySelector('.advanced-lock-note');
+    if (owned) {
+      if (note) note.remove();
+      return;
+    }
+    var label = intentLabel(spec.kind, spec.intentId);
+    if (!note) {
+      note = document.createElement('p');
+      note.className = 'settings-hint advanced-lock-note';
+      box.insertBefore(note, box.firstChild);
+    }
+    note.textContent = localizeUiText('当前由「' + label + '」接管这些参数；改动任意一项会切到自定义，并保留你要改的那一项。');
+  });
+  // 意图不相关的原始行不显示：看得见但没人读的开关就是假控件。
+  document.querySelectorAll('[data-intent-raw]').forEach(function (row) {
+    var attr = row.dataset.intentRaw;
+    if (attr === 'system') row.hidden = imageIntent.intent !== 'systemConvert';
+    else row.hidden = imageIntent.intent !== 'custom';
+  });
+}
+
+function intentLabel(kind, id) {
+  var list = kind === 'video' ? window.SizqoIntents.VIDEO_INTENTS : window.SizqoIntents.IMAGE_INTENTS;
+  var found = list.filter(function (i) { return i.id === id; })[0];
+  return found ? found.label : id;
+}
+
+function renderIntentBar() {
+  var isMac = isMacOS();
+  var imageCompiled = imageRequestFromIntent();
+  var videoCompiled = videoRequestFromIntent();
+  renderIntentChips('imageIntentChips', window.SizqoIntents.imageIntentList(isMac), imageIntent.intent, function (event) {
+    setImageIntent(event.currentTarget.dataset.intent);
+  });
+  renderIntentChips('videoIntentChips', window.SizqoIntents.VIDEO_INTENTS, videoIntent.intent, function (event) {
+    setVideoIntent(event.currentTarget.dataset.intent);
+  });
+  var imageNote = document.getElementById('imageIntentNote');
+  if (imageNote) imageNote.textContent = localizeUiText(imageCompiled.warning
+    ? imageCompiled.summary + ' · ' + intentNoteFor('image', imageIntent.intent)
+    : imageCompiled.summary);
+  var videoNote = document.getElementById('videoIntentNote');
+  if (videoNote) videoNote.textContent = localizeUiText(videoCompiled.warning
+    ? videoCompiled.summary + ' · ' + intentNoteFor('video', videoIntent.intent)
+    : videoCompiled.summary);
+  var imageSummary = document.getElementById('imageIntentSummary');
+  if (imageSummary) imageSummary.textContent = localizeUiText(imageCompiled.summary);
+  var videoSummary = document.getElementById('videoIntentSummary');
+  if (videoSummary) videoSummary.textContent = localizeUiText(videoCompiled.summary);
+  if (videoCompiled.options && videoCompiled.options.targetMiB) videoIntent.targetMiB = videoCompiled.options.targetMiB;
+
+  // 意图不驱动任何控件时不该假装能编辑：非自定义时把意图的值铺上去。
+  if (imageIntent.intent !== 'custom' && imageIntent.intent !== 'systemConvert') paintImageRawControls(imageCompiled);
+  renderIntentTargetRow(imageCompiled, videoCompiled);
+  renderAdvancedLock();
+
+  var advanced = document.getElementById('intentAdvanced');
+  if (advanced) {
+    var imageGroup = document.getElementById('imageIntentGroup');
+    var videoGroup = document.getElementById('videoIntentGroup');
+    var imageCol = document.getElementById('imageAdvancedRows');
+    var videoCol = document.getElementById('videoAdvancedRows');
+    if (imageCol) imageCol.hidden = !(imageGroup && !imageGroup.hidden);
+    if (videoCol) videoCol.hidden = !(videoGroup && !videoGroup.hidden);
+  }
+  var infoBtn = document.getElementById('systemInfoBtn');
+  if (infoBtn) infoBtn.hidden = imageCompiled.options.processingMode !== 'system';
+  updateAutoCompressLabel();
+}
+
+function intentNoteFor(kind, id) {
+  var list = kind === 'video' ? window.SizqoIntents.VIDEO_INTENTS : window.SizqoIntents.IMAGE_INTENTS;
+  var found = list.filter(function (i) { return i.id === id; })[0];
+  return found && found.warning ? found.warning : '';
+}
+
+function updateAutoCompressLabel() {
+  var autoLabel = document.getElementById('autoCompressLabel');
+  if (!autoLabel) return;
+  autoLabel.textContent = systemModeActive()
+    ? localizeUiText('拖入或选择后自动转换')
+    : localizeUiText('拖入或选择后自动压缩');
+}
+
+/// 开始按钮的文案只跟着队列与意图走，不读 CSS class —— 实现在「运行条」那一节。
+
+function bindIntentControls() {
+  var advanced = document.getElementById('intentAdvanced');
+  if (advanced) {
+    var claim = function (event) {
+      var target = event.target;
+      if (!target || !target.closest) return;
+      var col = target.closest('.advanced-col');
+      if (!col) return;
+      claimRawEdit(col.id === 'videoAdvancedRows' ? 'video' : 'image', target);
+    };
+    advanced.addEventListener('change', claim, true);
+    advanced.addEventListener('input', claim, true);
+  }
+  ['imageTargetKib', 'imageDimCap', 'videoTargetMiBInput'].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    var handler = function () {
+      if (id === 'videoTargetMiBInput') {
+        var n = parseFloat(el.value);
+        if (Number.isFinite(n) && n > 0) videoIntent.targetMiB = n;
+        // 只有"按体积"这件事归意图管的时候才接手它：自定义之下这格数字是
+        // 用户自己填的参数，把它翻成 videoTarget 会连带换掉整套自定义编码参数。
+        if (videoIntent.intent !== 'videoCustom' && videoIntent.intent !== 'videoTarget') {
+          videoIntent.intent = 'videoTarget';
+        }
+      } else {
+        syncImageRawState();
+      }
+      renderIntentBar();
+      saveCompressSettings();
+      saveVideoSettings();
+    };
+    el.addEventListener('input', handler);
+    el.addEventListener('change', handler);
+  });
 }
 
 // Output mode radio
-function updateOutputModeControls() {
+function currentOutputMode() {
   var selected = document.querySelector('input[name="outputMode"]:checked');
-  var mode = selected ? selected.value : 'replace';
-  if (outputDirRow) outputDirRow.style.display = mode === 'folder' ? 'flex' : 'none';
-  if (outputSuffixRow) outputSuffixRow.style.display = mode === 'suffix' ? 'flex' : 'none';
+  // 回落值必须与 HTML 里 checked 的那一项一致，也与 Swift 的默认档位一致：
+  // 三轨的默认输出方式是同一份契约，不是各页各写一遍。
+  return selected ? selected.value : 'replace';
+}
+
+function updateOutputModeControls() {
+  var mode = currentOutputMode();
+  if (outputDirRow) outputDirRow.hidden = mode !== 'folder';
+  if (outputSuffixRow) outputSuffixRow.hidden = mode !== 'suffix';
 }
 document.querySelectorAll('input[name="outputMode"]').forEach(radio => {
   radio.addEventListener('change', () => {
     updateOutputModeControls();
     saveCompressSettings();
-    updateSettingsSummary();
+    renderDetailPane();
   });
 });
 
@@ -291,8 +604,8 @@ function getResultOutputSuffix(result) {
 }
 
 function toggleVideoSettings() {
-  var panel = document.getElementById('videoSettingsPanel');
-  if (panel) panel.classList.toggle('collapsed');
+  var advanced = document.getElementById('intentAdvanced');
+  if (advanced) advanced.open = !advanced.open;
 }
 
 function videoOptionsFromControls() {
@@ -302,7 +615,7 @@ function videoOptionsFromControls() {
     mode: document.getElementById('videoMode').value || 'crf',
     crf: parseInt(document.getElementById('videoCrf').value, 10),
     bitrateKbps: parseInt(document.getElementById('videoBitrate').value, 10),
-    targetMiB: parseFloat(document.getElementById('videoTargetMiB').value),
+    targetMiB: parseFloat(document.getElementById('videoTargetMiBInput').value),
     preset: document.getElementById('videoSpeed').value || 'medium',
     resolution: resolutionValue === 'custom'
       ? parseInt(document.getElementById('videoResolutionCustom').value, 10)
@@ -332,8 +645,7 @@ function applyVideoOptions(options) {
   setValue('videoSpeed', currentVideoOptions.preset);
   setValue('videoCrf', currentVideoOptions.crf);
   setValue('videoBitrate', currentVideoOptions.bitrateKbps);
-  setValue('videoTargetMiB', currentVideoOptions.targetMiB);
-  setValue('videoPreset', currentVideoOptions.preset);
+  setValue('videoTargetMiBInput', currentVideoOptions.targetMiB);
   setValue('videoResolution', [0, 2160, 1440, 1080, 720].includes(Number(currentVideoOptions.resolution)) ? currentVideoOptions.resolution : 'custom');
   if (![0, 2160, 1440, 1080, 720].includes(Number(currentVideoOptions.resolution))) setValue('videoResolutionCustom', currentVideoOptions.resolution);
   setValue('videoFrameRate', currentVideoOptions.frameRate);
@@ -376,15 +688,19 @@ function syncVideoSettingsControls() {
   renderVideoQueueRows();
 }
 
+/// 视频摘要就是"当前意图编译出来的那套参数"，不再另设一个小字区。
+/// 这里只改文案、不重建 chips —— 重建会绕回 applyVideoOptions 形成回环。
 function updateVideoSettingsSummary() {
-  var summary = document.getElementById('videoSettingsSummary');
-  if (!summary) return;
-  var parts = [];
-  var preset = videoPresets.find(function(entry) { return window.SizqoVideo.presetId(entry) === selectedVideoPresetId; });
-  parts.push(preset ? window.SizqoVideo.presetLabel(preset) : window.SizqoVideo.PRESET_LABELS[currentVideoOptions.preset] || currentVideoOptions.preset);
-  parts.push(currentVideoOptions.container.toUpperCase());
-  parts.push(currentVideoOptions.resolution === 0 ? localizeUiText('保持分辨率') : localizeUiText('最长边 ') + currentVideoOptions.resolution + ' px');
-  summary.textContent = parts.join(' · ');
+  var compiled = videoRequestFromIntent();
+  if (compiled.options && compiled.options.targetMiB) videoIntent.targetMiB = compiled.options.targetMiB;
+  var summary = document.getElementById('videoIntentSummary');
+  if (summary) summary.textContent = localizeUiText(compiled.summary);
+  var note = document.getElementById('videoIntentNote');
+  if (note) {
+    note.textContent = localizeUiText(compiled.warning
+      ? compiled.summary + ' · ' + intentNoteFor('video', videoIntent.intent)
+      : compiled.summary);
+  }
 }
 
 function saveVideoSettings() {
@@ -540,14 +856,14 @@ function bindVideoSettings() {
       presetSelect.value = selectedVideoPresetId;
     }
   });
-  ['videoEncoder', 'videoSpeed', 'videoMode', 'videoCrf', 'videoBitrate', 'videoTargetMiB',
+  ['videoEncoder', 'videoSpeed', 'videoMode', 'videoCrf', 'videoBitrate', 'videoTargetMiBInput',
     'videoResolution', 'videoResolutionCustom', 'videoFrameRate', 'videoAudioPolicy', 'videoSubtitlePolicy',
     'videoMetadataPolicy', 'videoOutputMode', 'videoOutputSuffix', 'videoContainer', 'videoThreads', 'videoAllowLarger']
     .forEach(function(id) {
       var element = document.getElementById(id);
       if (!element) return;
       element.addEventListener('change', function() { saveVideoSettings(); });
-      if (['videoOutputSuffix', 'videoCrf', 'videoBitrate', 'videoTargetMiB', 'videoResolutionCustom', 'videoThreads'].includes(id)) {
+      if (['videoOutputSuffix', 'videoCrf', 'videoBitrate', 'videoTargetMiBInput', 'videoResolutionCustom', 'videoThreads'].includes(id)) {
         element.addEventListener('input', saveVideoSettings);
       }
     });
@@ -666,17 +982,16 @@ async function selectOutputDir() {
 }
 
 async function ensureSystemOutputAccess() {
-  if (processingMode !== 'system' || BUILD_VARIANT !== 'App Store') return true;
-  var selectedMode = document.querySelector('input[name="outputMode"]:checked');
-  if (selectedMode && selectedMode.value === 'folder' && outputDir) return true;
+  if (!systemModeActive() || BUILD_VARIANT !== 'App Store') return true;
+  if (currentOutputMode() === 'folder' && outputDir) return true;
 
   showToast(localizeUiText('请选择系统转换文件的输出文件夹'));
   if (!await selectOutputDir()) return false;
   var folderMode = document.querySelector('input[name="outputMode"][value="folder"]');
   if (folderMode) folderMode.checked = true;
-  if (outputDirRow) outputDirRow.style.display = 'flex';
+  updateOutputModeControls();
   saveCompressSettings();
-  updateSettingsSummary();
+  renderDetailPane();
   return true;
 }
 
@@ -793,10 +1108,6 @@ function handleFilePaths(filePaths) {
     var added = mergeQueueMedia(supportedRecords);
     inputPaths = appendUniquePaths(inputPaths, incoming);
 
-    var queuePanel = document.getElementById('queuePanel');
-    if (queuePanel) queuePanel.style.display = 'block';
-    settingsPanel.style.display = 'block';
-    resultsPanel.style.display = 'none';
     updateQueueSummary();
     renderFileQueue();
     if (typeof updateMediaWorkspace === 'function') updateMediaWorkspace();
@@ -804,8 +1115,10 @@ function handleFilePaths(filePaths) {
       var item = queueItems.get(filePath);
       if (item && item.mediaKind === 'video' && item.videoProbe) queueVideoCover(item);
     });
-    var container = document.querySelector('.container');
-    if (container) container.scrollTop = 0;
+    // 导入之后详情列不该是空的：默认落到第一个新来的文件，用户一眼能看到"它到底多大"。
+    if (added.length > 0) selectQueueFile(added[0]);
+    var scroller = document.querySelector('.list-scroll');
+    if (scroller) scroller.scrollTop = 0;
 
     if (added.length === 0) {
       showToast(localizeUiText('所选媒体已在队列中'));
@@ -852,7 +1165,7 @@ function getRunnablePendingPaths(requestedPaths) {
 function setMediaFilter(filter) {
   mediaFilter = ['all', 'image', 'video'].includes(filter) ? filter : 'all';
   showView('main');
-  // 变量本身不画任何东西：导航高亮、两侧设置面板、队列行过滤都由这次重绘驱动。
+  // 变量本身不画任何东西：chips 高亮、意图组、队列行过滤都由这次重绘驱动。
   updateMediaWorkspace();
 }
 
@@ -861,35 +1174,45 @@ function setHistoryFilter(filter) {
   renderHistory();
 }
 
-function updateMediaNavigation() {
-  document.querySelectorAll('[data-media-view]').forEach(function(button) {
-    var selected = currentView === 'history'
-      ? button.dataset.mediaView === 'history'
-      : button.dataset.mediaView === mediaFilter;
+/// chips 的高亮只从 mediaFilter / historyFilter 两个变量派生，绝不去读 CSS class。
+function updateFilterChips() {
+  document.querySelectorAll('#mediaFilterChips [data-media-filter]').forEach(function(button) {
+    var selected = button.dataset.mediaFilter === mediaFilter;
     button.classList.toggle('active', selected);
+    button.setAttribute('aria-pressed', selected ? 'true' : 'false');
   });
-  document.querySelectorAll('[data-history-filter]').forEach(function(button) {
-    button.classList.toggle('active', button.dataset.historyFilter === historyFilter);
+  document.querySelectorAll('#historyFilterChips [data-history-filter]').forEach(function(button) {
+    var selected = button.dataset.historyFilter === historyFilter;
+    button.classList.toggle('active', selected);
+    button.setAttribute('aria-pressed', selected ? 'true' : 'false');
   });
 }
 
+function queueKindCounts() {
+  var imageCount = 0;
+  var videoCount = 0;
+  files.forEach(function(filePath) {
+    var item = queueItems.get(filePath);
+    if (item && item.mediaKind === 'video') videoCount++;
+    else imageCount++;
+  });
+  return { image: imageCount, video: videoCount };
+}
+
+/// 意图条只留这一轮真用得上的那一组：队列里没有视频时，"视频目标"就是装饰；
+/// 队列为空时两组都在，因为下一步导入什么还不知道。
+function updateIntentGroups() {
+  var counts = queueKindCounts();
+  var imageGroup = document.getElementById('imageIntentGroup');
+  var videoGroup = document.getElementById('videoIntentGroup');
+  if (imageGroup) imageGroup.hidden = mediaFilter === 'video' || (mediaFilter === 'all' && counts.video > 0 && counts.image === 0);
+  if (videoGroup) videoGroup.hidden = mediaFilter === 'image' || (mediaFilter === 'all' && counts.image > 0 && counts.video === 0);
+}
+
 function updateMediaWorkspace() {
-  var imageCount = files.filter(function(filePath) {
-    var item = queueItems.get(filePath);
-    return !item || item.mediaKind !== 'video';
-  }).length;
-  var videoCount = files.filter(function(filePath) {
-    var item = queueItems.get(filePath);
-    return item && item.mediaKind === 'video';
-  }).length;
-  var showImageSettings = mediaFilter === 'image'
-    || (mediaFilter === 'all' && (imageCount > 0 || videoCount === 0));
-  var showVideoSettings = mediaFilter === 'video' || (mediaFilter === 'all' && videoCount > 0);
-  if (settingsPanel) settingsPanel.style.display = showImageSettings ? 'block' : 'none';
-  if (videoSettingsPanel) videoSettingsPanel.style.display = showVideoSettings ? 'block' : 'none';
-  var queuePanel = document.getElementById('queuePanel');
-  if (queuePanel) queuePanel.style.display = files.length > 0 ? 'block' : 'none';
-  updateMediaNavigation();
+  updateFilterChips();
+  updateIntentGroups();
+  renderIntentBar();
   applyQueueView();
   renderStartButton();
 }
@@ -973,6 +1296,7 @@ function updateQueueSummary() {
   updateBulkActionButtons();
   applyQueueView();
   renderQueueProgressFill();
+  renderRunBar(p);
   renderStartButton();
 }
 
@@ -995,10 +1319,13 @@ function renderQueueProgressFill() {
 }
 
 function updateBulkActionButtons() {
+  var successes = queueResults().filter(function(r) { return r && r.success; });
   var restoreBtn = document.getElementById('restoreAllBtn');
-  if (!restoreBtn) return;
-  var hasRestorable = queueResults().some(function(r) { return r && r.success; });
-  restoreBtn.style.display = hasRestorable ? 'inline-flex' : 'none';
+  // 「恢复全部原图」只对**覆盖模式**落过备份的条目有意义，但服务层自己会跳过
+  // 没有备份的那些；按钮这里只管"有没有可撤销的产物"。
+  if (restoreBtn) restoreBtn.hidden = successes.length === 0;
+  var exportBtn = document.getElementById('exportAllBtn');
+  if (exportBtn) exportBtn.hidden = successes.length === 0;
 }
 
 // ─── 队列渲染（排序 / 视图 / 每一行的画法）──────────────────────
@@ -1114,7 +1441,7 @@ async function renderFileQueue() {
         var row = fileRows[newFiles[j]];
         if (item && sizes[j] !== undefined) item.originalSize = sizes[j];
         if (row && sizes[j] !== undefined && (!item || item.state === 'pending')) {
-          var sizeEl = row.querySelector('.queue-item-size');
+          var sizeEl = row.querySelector('.media-size');
           if (sizeEl) sizeEl.textContent = formatBytes(sizes[j]);
         }
       }
@@ -1123,8 +1450,12 @@ async function renderFileQueue() {
   }
 }
 
-/// 把一个队列项此刻的状态**画**到它那一行上：图标、文案、尺寸、操作按钮。
+/// 把一个队列项此刻的状态**画**到它那一行上：缩略图、来源、结论、尺寸、能做的动作。
 /// 唯一的方向是 queueItems → DOM；DOM class 不许反过来影响任何判断。
+///
+/// 五列各有各的分工，不许互相顶：
+///   缩略图 = 素材本身；来源行 = 它原来是什么；结论行 = 这一轮对它做了什么；
+///   尺寸 = 现在多大；最右 = 状态图标 + 此刻真能点的动作。
 function paintQueueRow(filePath) {
   var row = fileRows[filePath];
   var item = queueItems.get(filePath);
@@ -1133,23 +1464,15 @@ function paintQueueRow(filePath) {
   ['pending', 'running', 'done', 'failed', 'restored', 'removed'].forEach(function(name) {
     row.classList.toggle(name, name === state);
   });
-  // 兼容既有样式表里的 .waiting / .compressing 两个名字。
-  row.classList.toggle('waiting', state === 'pending');
-  row.classList.toggle('compressing', state === 'running');
+  row.classList.toggle('selected', selectedQueueFile === filePath);
 
-  var rmBtn = row.querySelector('.queue-item-remove');
-  if (rmBtn) rmBtn.style.display = state === 'pending' ? '' : 'none';
-
-  var icon = row.querySelector('.queue-item-icon');
-  var sizeEl = row.querySelector('.queue-item-size');
-  var statusEl = row.querySelector('.queue-item-status');
-  var actions = row.querySelector('.queue-item-actions');
-  var errIcon = actions ? actions.querySelector('.error-info-btn') : null;
-  if (statusEl) {
-    // 只改文案节点，保住里面那个已经挂上去的错误图标。
-    statusEl.textContent = '';
-  }
-  if (actions) actions.innerHTML = '';
+  var actionsEl = row.querySelector('.media-actions');
+  var metaEl = row.querySelector('.media-meta');
+  var sizeEl = row.querySelector('.media-size');
+  var subEl = row.querySelector('.media-sub');
+  var removeBtn = row.querySelector('.media-remove');
+  if (removeBtn) removeBtn.hidden = state !== 'pending';
+  if (actionsEl) actionsEl.innerHTML = '';
 
   if (item.mediaKind === 'video') {
     paintVideoQueueRow(filePath, row, item);
@@ -1157,43 +1480,95 @@ function paintQueueRow(filePath) {
   }
 
   var result = item.result;
+  if (subEl) subEl.textContent = imageSourceLine(item, result);
+  if (subEl) subEl.title = filePath;
+
   if (state === 'done' && result) {
-    if (icon) icon.innerHTML = iconMarkup('check', true);
-    if (sizeEl) {
-      sizeEl.textContent = formatBytes(result.originalSize) + ' → ' + formatBytes(result.compressedSize);
-    }
-    if (statusEl) {
-      statusEl.textContent = (result.savings >= 0 ? '-' : '+') + Math.abs(result.savings).toFixed(1) + '%';
-      if (result.error) appendErrorIcon(statusEl, result);
+    setStateIcon(row, result.error ? 'warning' : 'check', result.error ? 'failed' : 'done');
+    if (sizeEl) sizeEl.textContent = formatBytes(result.compressedSize);
+    if (sizeEl) sizeEl.title = formatBytes(result.originalSize) + ' → ' + formatBytes(result.compressedSize);
+    if (metaEl) {
+      metaEl.textContent = imageOutcomeLine(result);
+      metaEl.title = result.error || '';
     }
     renderQueueResultActions(row, result);
     return;
   }
   if (state === 'failed' && result) {
-    if (icon) icon.innerHTML = iconMarkup('error', true);
-    if (statusEl) {
-      statusEl.textContent = localizeUiText('失败');
-      appendErrorIcon(statusEl, result);
-    }
+    setStateIcon(row, 'error', 'failed');
+    if (sizeEl) sizeEl.textContent = item.originalSize ? formatBytes(item.originalSize) : '';
+    if (metaEl) metaEl.textContent = localizeUiText('失败');
     renderQueueResultActions(row, result);
     return;
   }
   if (state === 'restored') {
-    if (icon) icon.innerHTML = iconMarkup('restore', true);
-    if (statusEl) statusEl.textContent = localizeUiText('已恢复');
+    setStateIcon(row, 'restore', 'restored');
+    if (sizeEl) sizeEl.textContent = item.originalSize ? formatBytes(item.originalSize) : '';
+    if (metaEl) metaEl.textContent = localizeUiText('已恢复');
     renderRestoredActions(row, filePath);
     return;
   }
-
   if (state === 'removed') {
-    if (icon) icon.innerHTML = iconMarkup('minus', true);
-    if (statusEl) statusEl.textContent = localizeUiText('已移除');
+    setStateIcon(row, 'minus', 'removed');
+    if (metaEl) metaEl.textContent = localizeUiText('已移除');
+    return;
   }
-  // pending 的行此刻该写什么，交给同一张状态表（暂停时是「已暂停」）。
+
+  // pending / running：这一列只写**这个文件此刻的处境**（等待中 / 已暂停 / 收尾中…）。
+  // 本轮要做什么（意图摘要）是批次级别的事实，写在运行条和详情列里，不重复 40 遍。
   renderTaskStatus(row, state === 'pending' ? waitingRowStatus() : state);
-  // 重新排队（重试 / 继续压缩）时把尺寸还原成原图大小：
-  // 上一轮那个「1.2MB → 800KB」留在这儿就是在报一个已经不成立的结果。
   if (sizeEl) sizeEl.textContent = item.originalSize ? formatBytes(item.originalSize) : '';
+}
+
+function setStateIcon(row, iconName, tone) {
+  var el = row.querySelector('.media-state-icon');
+  if (!el) return;
+  el.className = 'media-state-icon' + (tone ? ' ' + tone : '');
+  el.innerHTML = iconName === 'spinner' ? progressSpinnerMarkup()
+    : iconName ? iconMarkup(iconName, true) : '';
+}
+
+/// 行内那条 2px 的进度：只在真的转的时候存在。图片没有单文件进度事件，
+/// 所以图片行永远没有这条 —— 宁可没有，也不画一条不知道由谁驱动的条。
+function setRowProgressBar(row, fraction) {
+  var bar = row.querySelector('.progress-file-bar');
+  if (!bar) return;
+  var known = Number.isFinite(fraction);
+  bar.hidden = !known;
+  if (known) bar.firstChild.style.width = (Math.max(0, Math.min(1, fraction)) * 100) + '%';
+}
+
+function imageTypeLabel(filePath) {
+  var ext = extname(filePath).replace('.', '').toUpperCase();
+  return ext === 'JPEG' ? 'JPG' : ext;
+}
+
+/// 来源行只写**已经知道的事实**：尺寸未知就只写格式，不猜、不留空占位符。
+function imageSourceLine(item, result) {
+  var width = (result && result.sourceWidth) || (item && item.width);
+  var height = (result && result.sourceHeight) || (item && item.height);
+  var dims = width && height ? width + ' × ' + height : '';
+  var type = (result && result.type) || imageTypeLabel(item && item.path);
+  return [dims, type].filter(Boolean).join(' · ');
+}
+
+/// 结论行：算法 + 这次真正的降幅；指定体积时把"达标没有"写在最前面，
+/// 因为那是这一轮用户对它的唯一期待（AGENTS.md：达不到的承诺不能报成成功）。
+function imageOutcomeLine(result) {
+  var parts = [];
+  if (result.targetBytes) {
+    var want = formatBytes(result.targetBytes);
+    parts.push(result.targetMet === true
+      ? localizeUiText('达标 ≤ ') + want
+      : result.targetMet === false
+        ? localizeUiText('未达 ') + want
+        : localizeUiText('目标 ') + want);
+  }
+  if (Number.isFinite(result.savings)) {
+    parts.push((result.savings >= 0 ? '-' : '+') + Math.abs(result.savings).toFixed(1) + '%');
+  }
+  if (result.algorithm) parts.push(result.algorithm);
+  return parts.join(' · ');
 }
 
 /// 失败行上那个小三角：鼠标悬停有 title，点一下把完整错误说出来。
@@ -1202,41 +1577,71 @@ function showErrorDetail(filePath, message) {
   showToast(basename(filePath) + ': ' + message);
 }
 
-function appendErrorIcon(statusEl, result) {
-  if (!statusEl || !result.error) return;
-  var errIcon = document.createElement('span');
+function appendErrorIcon(actionsEl, result) {
+  if (!actionsEl || !result.error) return;
+  var errIcon = document.createElement('button');
+  errIcon.type = 'button';
   errIcon.className = 'error-info-btn';
   errIcon.title = result.error;
+  errIcon.setAttribute('aria-label', localizeUiText('查看失败原因'));
   errIcon.innerHTML = iconMarkup('warning', true);
   errIcon.onclick = function(e) { e.stopPropagation(); showErrorDetail(result.file, result.error); };
-  statusEl.appendChild(errIcon);
+  actionsEl.appendChild(errIcon);
 }
 
 function createQueueRow(filePath) {
   var row = document.createElement('div');
   var item = queueItems.get(filePath);
   var isVideo = !!(item && item.mediaKind === 'video');
-  row.className = 'file-queue-item' + (isVideo ? ' video-queue-item' : '');
+  row.className = 'media-item' + (isVideo ? ' media-kind-video' : '');
   row.dataset.mediaKind = isVideo ? 'video' : 'image';
   row.dataset.file = filePath;
-  var name = basename(filePath);
   row.innerHTML =
-    '<span class="queue-item-icon">' + iconMarkup('queue', true) + '</span>' +
-    '<span class="queue-item-name"></span>' +
-    '<span class="queue-item-size"></span>' +
-    localizeUiText('<span class="queue-item-status">等待中</span>') +
-    '<span class="queue-item-actions"></span>' +
-    localizeUiText('<button class="queue-item-remove" title="移除">') + iconMarkup('close', true) + '</button>' +
-    (isVideo ? '<span class="video-task-meta"></span><span class="video-task-progress"></span>' : '<div class="progress-file-bar"></div>');
-  var nameEl = row.querySelector('.queue-item-name');
-  if (nameEl) nameEl.textContent = name;
-  var rmBtn = row.querySelector('.queue-item-remove');
-  rmBtn.addEventListener('click', function(e) {
+    '<span class="media-thumb">' + iconMarkup(isVideo ? 'video' : 'image', true) + '</span>' +
+    '<span class="media-title">' +
+      '<span class="media-name"></span>' +
+      '<span class="media-sub"></span>' +
+    '</span>' +
+    '<span class="media-meta"></span>' +
+    '<span class="media-size"></span>' +
+    '<span class="media-status">' +
+      '<span class="media-state-icon"></span>' +
+      '<span class="media-actions"></span>' +
+      '<button class="media-remove" title="' + localizeUiText('移出队列') + '" aria-label="' + localizeUiText('移出队列') + '">' + iconMarkup('close', true) + '</button>' +
+    '</span>' +
+    '<span class="progress-file-bar"' + (isVideo ? '' : ' hidden') + '><i></i></span>';
+  var nameEl = row.querySelector('.media-name');
+  if (nameEl) nameEl.textContent = basename(filePath);
+  var removeBtn = row.querySelector('.media-remove');
+  removeBtn.addEventListener('click', function(e) {
     e.stopPropagation();
     removeQueueFile(filePath);
   });
+  // 点一行就是选中它：详情列画的正是这一项，行本身不藏着任何二级展开。
+  row.addEventListener('click', function() { selectQueueFile(filePath); });
   paintQueueRow(filePath);
+  queueRowThumb(filePath);
   return row;
+}
+
+/// 缩略图取的是**原图**，走 convertFileSrc；取不到就保留类型图标，不占位空白。
+function queueRowThumb(filePath) {
+  var item = queueItems.get(filePath);
+  if (!item || item.mediaKind === 'video') return;
+  var row = fileRows[filePath];
+  if (!row || item.thumbRequested) return;
+  item.thumbRequested = true;
+  var img = new Image();
+  img.alt = '';
+  img.draggable = false;
+  img.onerror = function() { /* 缩略图画不出来不是错误：类型图标还在。 */ };
+  img.onload = function() {
+    var thumb = row.querySelector('.media-thumb');
+    if (!thumb) return;
+    thumb.innerHTML = '';
+    thumb.appendChild(img);
+  };
+  setImageSource(img, imageFileSrc(filePath), 4000);
 }
 
 function videoAudioSummary(probe) {
@@ -1258,14 +1663,22 @@ function videoWarningText(item) {
 }
 
 function videoProgressText(item) {
+  var statusText = videoStatusText(item);
+  var numbers = videoProgressNumbers(item);
+  return [statusText, numbers].filter(Boolean).join(' · ');
+}
+
+/// 进度数字只报**正在发生**的那几项：百分比、倍速、帧率、剩余时间。
+/// 没有实时进度时给的是体积估算，并且把"估算"两个字写在里面 —— 它不是承诺。
+function videoProgressNumbers(item) {
   var progress = item.videoProgress;
   if (!progress) {
     var estimate = window.SizqoVideo.estimateOutputBytes(item.videoProbe, currentVideoOptions);
     if (estimate) return localizeUiText('预计输出约 ') + formatBytes(estimate.bytes) + localizeUiText('（估算）');
-    return localizeUiText('尚无可靠体积估算');
+    return '';
   }
-  var labels = { queued: '排队中', starting: '准备中', encoding: '正在编码', completed: '已完成', failed: '失败', cancelled: '已取消', deferred: '等待下一轮', skippedLarger: '体积更大，已跳过' };
-  var parts = [localizeUiText(labels[progress.stage] || '处理中')];
+  if (item.state !== 'running') return '';
+  var parts = [];
   if (Number.isFinite(progress.fraction)) parts.push(Math.round(Math.max(0, Math.min(1, progress.fraction)) * 100) + '%');
   if (progress.speed) parts.push(String(progress.speed));
   if (Number.isFinite(progress.fps)) parts.push(progress.fps.toFixed(1) + ' fps');
@@ -1275,61 +1688,77 @@ function videoProgressText(item) {
   return parts.join(' · ');
 }
 
+/// 状态词。暂停 / 收尾中必须能在文字里读到，所以 running 与 pending 走的是
+/// 与图片行**同一张**状态表（taskStatusMarkup）。
+function videoStatusText(item) {
+  if (item.state === 'running') return taskStatusMarkup('running').text;
+  if (item.state === 'pending') return taskStatusMarkup(waitingRowStatus()).text;
+  var result = item.result || {};
+  if (item.state === 'done' && result.skippedLarger) return localizeUiText('体积更大，已跳过');
+  if (item.state === 'done' && result.success) {
+    return localizeUiText('已压缩 ') + (Number.isFinite(result.savings)
+      ? (result.savings >= 0 ? '-' : '+') + Math.abs(result.savings).toFixed(1) + '%' : '');
+  }
+  if (item.state === 'done') return localizeUiText('已完成');
+  if (item.state === 'failed') return localizeUiText('失败');
+  if (item.state === 'restored') return localizeUiText('已恢复');
+  if (item.state === 'removed') return localizeUiText('已移除');
+  return '';
+}
+
 function paintVideoQueueRow(filePath, row, item) {
-  var icon = row.querySelector('.queue-item-icon');
-  var size = row.querySelector('.queue-item-size');
-  var status = row.querySelector('.queue-item-status');
-  var meta = row.querySelector('.video-task-meta');
-  var progressEl = row.querySelector('.video-task-progress');
-  var remove = row.querySelector('.queue-item-remove');
-  var actions = row.querySelector('.queue-item-actions');
-  if (remove) remove.style.display = item.state === 'pending' ? '' : 'none';
-  if (size) {
-    size.textContent = item.result && item.result.success
-      ? formatBytes(item.result.originalBytes) + ' → ' + formatBytes(item.result.outputBytes)
-      : (item.originalSize ? formatBytes(item.originalSize) : '');
+  var thumbEl = row.querySelector('.media-thumb');
+  var subEl = row.querySelector('.media-sub');
+  var metaEl = row.querySelector('.media-meta');
+  var sizeEl = row.querySelector('.media-size');
+  var actions = row.querySelector('.media-actions');
+  var result = item.result;
+
+  if (thumbEl && item.coverUrl) {
+    var existing = thumbEl.querySelector('img');
+    if (!existing) {
+      thumbEl.innerHTML = '<img alt="" draggable="false">';
+      thumbEl.firstChild.src = item.coverUrl;
+    } else if (existing.src !== item.coverUrl) {
+      existing.src = item.coverUrl;
+    }
   }
 
   var summary = window.SizqoVideo.videoSummary(item.videoProbe || {});
   var hdr = item.videoProbe && item.videoProbe.hdrKind;
   var color = hdr && String(hdr).toLowerCase() !== 'none' ? hdr : localizeUiText('SDR');
-  if (meta) {
-    var details = [summary.duration, summary.dimensions, summary.frameRate, color, summary.codec, videoAudioSummary(item.videoProbe)];
-    meta.textContent = details.join(' · ');
-    var warning = videoWarningText(item);
-    meta.title = details.join('\n') + (warning ? '\n' + warning : '');
-    meta.classList.toggle('video-task-warning', !!warning);
+  var details = [summary.duration, summary.dimensions, summary.frameRate, color, summary.codec, videoAudioSummary(item.videoProbe)];
+  var warning = videoWarningText(item);
+  if (subEl) {
+    subEl.textContent = details.filter(Boolean).join(' · ');
+    // 轨道/HDR 这些细节一屏放不下，但**不许藏**：悬停看全，检测到的限制同时
+    // 会出现在详情列里（video-capability-note），并在真正会出问题时被后端拒绝。
+    subEl.title = details.filter(Boolean).join('\n') + (warning ? '\n' + warning : '');
   }
-  if (progressEl) progressEl.textContent = videoProgressText(item);
-  if (status) {
-    status.textContent = '';
-    if (item.state === 'running') status.textContent = localizeUiText(item.videoProgress && item.videoProgress.stage === 'starting' ? '准备中' : '编码中');
-    else if (item.state === 'done' && item.result && item.result.skippedLarger) status.textContent = localizeUiText('已跳过');
-    else if (item.state === 'done' && item.result && item.result.success && Number.isFinite(item.result.savings)) {
-      status.textContent = (item.result.savings >= 0 ? '-' : '+') + Math.abs(item.result.savings).toFixed(1) + '%';
-    } else if (item.state === 'failed') status.textContent = localizeUiText('失败');
-    else if (item.state === 'restored') status.textContent = localizeUiText('已恢复');
-    else if (item.state === 'removed') status.textContent = localizeUiText('已移除');
-    else status.textContent = compressionPaused ? localizeUiText('已暂停') : localizeUiText('等待中');
+  if (metaEl) {
+    metaEl.textContent = videoProgressText(item);
+    metaEl.classList.toggle('media-warning', !!warning && item.state === 'pending');
   }
-  if (icon) {
-    if (item.coverUrl) {
-      icon.innerHTML = '<img alt="" draggable="false">';
-      icon.querySelector('img').src = item.coverUrl;
-    } else {
-      var iconName = item.state === 'done' && item.result && item.result.skippedLarger ? 'warning'
-        : item.state === 'done' ? 'check' : item.state === 'failed' ? 'error'
-        : item.state === 'restored' ? 'restore' : item.state === 'removed' ? 'minus' : 'queue';
-      icon.innerHTML = item.state === 'running' ? progressSpinnerMarkup() : iconMarkup(iconName, true);
-    }
+  if (sizeEl) {
+    sizeEl.textContent = result && result.success
+      ? formatBytes(result.outputBytes)
+      : (item.originalSize ? formatBytes(item.originalSize) : '');
+    sizeEl.title = result && result.success
+      ? formatBytes(result.originalBytes) + ' → ' + formatBytes(result.outputBytes) : '';
   }
+  setStateIcon(row,
+    item.state === 'running' ? 'spinner' : result && result.skippedLarger ? 'warning'
+      : item.state === 'done' ? 'check' : item.state === 'failed' ? 'error'
+      : item.state === 'restored' ? 'restore' : item.state === 'removed' ? 'minus' : 'queue',
+    item.state === 'running' ? 'running' : result && result.skippedLarger ? 'warning' : item.state);
+  setRowProgressBar(row, item.state === 'running' ? item.videoProgress && item.videoProgress.fraction : null);
+
   if (!actions) return;
   actions.innerHTML = '';
   if (item.state === 'running') {
     var cancelButton = appendVideoAction(actions, 'cancel', item.cancelRequested ? localizeUiText('正在取消…') : localizeUiText('取消当前视频'), 'stop', function() { cancelCurrentVideo(item.taskId); });
     cancelButton.disabled = !!item.cancelRequested;
   } else if (item.state === 'done' && item.result && item.result.success) {
-    var result = item.result;
     var original = result.outputMode === 'replace' ? result.backupPath : result.sourcePath;
     if (original) appendVideoAction(actions, 'play-original', localizeUiText('播放原视频'), 'play', function() { openMediaFile(original); });
     if (result.outputPath) appendVideoAction(actions, 'play-output', localizeUiText('播放输出视频'), 'play', function() { openMediaFile(result.outputPath); });
@@ -1443,8 +1872,8 @@ function copyVideoLog(result) {
   ];
   (result.warnings || []).forEach(function(warning) { lines.push('warning: ' + warning); });
   if (result.diagnosticsLogPath) lines.push('diagnosticsLogPath: ' + result.diagnosticsLogPath);
-  copyTextToClipboard(lines.join('\n'));
-  showToast(localizeUiText('视频日志已复制到剪贴板'));
+  var ok = copyTextToClipboard(lines.join('\n'));
+  showToast(ok ? localizeUiText('视频日志已复制到剪贴板') : localizeUiText('复制失败，请手动选中日志文本'));
 }
 
 function openVideoCompareForResult(result) {
@@ -1640,7 +2069,7 @@ function removeQueueFile(filePath) {
 }
 
 function renderQueueResultActions(row, result) {
-  var actions = row.querySelector('.queue-item-actions');
+  var actions = row.querySelector('.media-actions');
   if (!actions) return;
   actions.innerHTML = '';
   if (!result) return;
@@ -1682,6 +2111,8 @@ function renderQueueResultActions(row, result) {
     });
     actions.appendChild(btn);
   });
+  // 失败的原因不靠 hover 才能发现：给一个真能点的按钮，点了就把错误说出来。
+  appendErrorIcon(actions, result);
 }
 
 function copyCompressLog(result) {
@@ -1692,16 +2123,16 @@ function copyCompressLog(result) {
   lines.push('');
   lines.push(localizeUiText('\u6587\u4ef6: ') + (result.file || ''));
   lines.push(localizeUiText('\u72b6\u6001: ') + (result.success ? localizeUiText('\u6210\u529f') : localizeUiText('\u5931\u8d25')));
+  lines.push(localizeUiText('意图: ') + intentLabelForRun());
   lines.push('');
-  lines.push(localizeUiText('--- \u538b\u7f29\u53c2\u6570 ---'));
-  lines.push('quality: ' + (opts.quality !== undefined ? opts.quality : localizeUiText('(\u672a\u8bbe\u7f6e)')));
-  lines.push('smartMode: ' + (opts.smartMode !== undefined ? opts.smartMode : localizeUiText('(\u672a\u8bbe\u7f6e)')));
-  lines.push('outputFormat: ' + (opts.outputFormat || localizeUiText('(\u672a\u8bbe\u7f6e)')));
-  lines.push('backend: ' + (opts.backend || localizeUiText('(\u672a\u8bbe\u7f6e)')));
-  lines.push('effort: ' + (opts.effort !== undefined ? opts.effort : localizeUiText('(\u672a\u8bbe\u7f6e)')));
-  lines.push('convertToWebp: ' + (opts.convertToWebp !== undefined ? opts.convertToWebp : localizeUiText('(\u672a\u8bbe\u7f6e)')));
-  lines.push('outputMode: ' + (opts.outputMode || localizeUiText('(\u672a\u8bbe\u7f6e)')));
-  lines.push('outputSuffix: ' + (opts.outputSuffix || localizeUiText('(\u672a\u8bbe\u7f6e)')));
+  lines.push(localizeUiText('--- 这一轮的请求 ---'));
+  lines.push('quality: ' + (opts.quality !== undefined ? opts.quality : localizeUiText('(未设置)')));
+  lines.push('outputFormat: ' + (opts.outputFormat || localizeUiText('(未设置)')));
+  lines.push('maxDimensionPx: ' + (opts.maxDimensionPx || localizeUiText('(不限)')));
+  lines.push('maxOutputBytes: ' + (opts.maxOutputBytes || localizeUiText('(不限)')));
+  lines.push('processingMode: ' + (opts.processingMode || localizeUiText('(未设置)')));
+  lines.push('outputMode: ' + (opts.outputMode || localizeUiText('(未设置)')));
+  lines.push('outputSuffix: ' + (opts.outputSuffix || localizeUiText('(未设置)')));
   lines.push('');
   lines.push(localizeUiText('--- \u538b\u7f29\u7ed3\u679c ---'));
   if (result.success) {
@@ -1739,7 +2170,7 @@ function copyTextToClipboard(text) {
 }
 
 function renderRestoredActions(row, filePath) {
-  var actions = row.querySelector('.queue-item-actions');
+  var actions = row.querySelector('.media-actions');
   if (!actions) return;
   actions.innerHTML = '';
 
@@ -1755,43 +2186,63 @@ function renderRestoredActions(row, filePath) {
   actions.appendChild(btn);
 }
 
+/// 图片这一轮真正发给引擎的东西 = 意图编译出的参数 + 输出侧的落盘方式。
+/// 字段集合与 src-tauri/src/engine.rs 的 CompressOptions（camelCase）一一对应：
+/// 界面上不再提供、引擎也不再读的 backend / effort / smartMode / convertToWebp
+/// 已经从这条请求里消失了 —— smart 路由的真实载体是命令参数 use_smart。
 function getCurrentCompressionConfig() {
-  const outputMode = document.querySelector('input[name="outputMode"]:checked').value;
-  const outputFormat = processingMode === 'system'
-    ? document.getElementById('systemOutputFormat').value
-    : document.getElementById('outputFormat').value;
-  const backend = document.getElementById('compressionBackend').value;
-  const effort = parseInt(document.getElementById('compressionEffort').value);
-  const smartMode = document.getElementById('smartMode').checked;
-  const convertToWebp = document.getElementById('convertToWebp').checked;
-
-  let effectiveFormat = outputFormat;
-  if (processingMode === 'advanced' && convertToWebp && outputFormat === 'original') {
-    effectiveFormat = 'webp';
-  }
-
+  const compiled = imageRequestFromIntent();
+  const options = compiled.options;
+  const outputMode = currentOutputMode();
   if (outputMode === 'folder' && !outputDir) {
     return { error: localizeUiText('请先选择输出目录') };
   }
-
   return {
-    useSmartIpc: processingMode === 'advanced' && (smartMode || effectiveFormat !== 'original'),
+    useSmartIpc: compiled.useSmart && options.processingMode === 'advanced',
     options: {
-      processingMode,
-      systemImageSize: document.getElementById('systemImageSize').value,
-      preserveMetadata: document.getElementById('preserveMetadata').checked,
-      quality: parseInt(qualitySlider.value),
-      smartMode: processingMode === 'advanced' && smartMode,
-      outputFormat: effectiveFormat,
-      backend,
-      effort,
-      convertToWebp: processingMode === 'advanced' && convertToWebp,
+      processingMode: options.processingMode,
+      systemImageSize: options.systemImageSize || 'actual',
+      preserveMetadata: options.processingMode === 'system' ? options.preserveMetadata !== false : false,
+      quality: options.quality,
+      outputFormat: options.outputFormat,
+      maxDimensionPx: options.maxDimensionPx || null,
+      maxOutputBytes: options.maxOutputBytes || null,
       outputMode,
       outputSuffix: getOutputSuffix(),
       outputDir: outputMode === 'folder' ? outputDir : null,
       sourceRoots: inputPaths.slice(),
     },
   };
+}
+
+/// 当前意图是不是系统转换。按钮文案、错误文案、输出目录权限都读这一个判据，
+/// 不再有一个游离的 `processingMode` 变量（它以前既不随意图更新，也不落盘）。
+function systemModeActive() {
+  return imageRequestFromIntent().options.processingMode === 'system';
+}
+
+/// 开跑时拍下的这一轮请求；没拍过就用当前意图现编译。
+function requestForRun(kind) {
+  var snapshot = runIntentSnapshot ? runIntentSnapshot[kind] : null;
+  return snapshot || (kind === 'video' ? videoRequestFromIntent() : imageRequestFromIntent());
+}
+
+/// 还没开始的行回答的是「接下来会对它做什么」：跑动中的这一批仍按开跑时冻结的请求算，
+/// 空闲时按当前 chips 算 —— 改了意图，排队的行就该跟着改口。
+function requestForNext(kind) {
+  if (isCompressing && runIntentSnapshot && runIntentSnapshot[kind]) return runIntentSnapshot[kind];
+  return kind === 'video' ? videoRequestFromIntent() : imageRequestFromIntent();
+}
+
+/// 这一轮（或刚跑完的那一轮）走的是不是系统转换：收尾文案要跟着实际跑的意图说，
+/// 不能因为用户在最后一刻点了别的 chip 就改口。
+function systemModeForRun() {
+  var request = requestForRun('image');
+  return !!(request.options && request.options.processingMode === 'system');
+}
+
+function intentLabelForRun() {
+  return localizeUiText(requestForRun('image').summary || '');
 }
 
 function clearAllFiles() {
@@ -1813,15 +2264,12 @@ function clearAllFiles() {
   queueItems = new Map();
   fileRows = {};
   pendingAutoCompress = false;
-  var queuePanel = document.getElementById('queuePanel');
-  if (queuePanel) queuePanel.style.display = 'none';
-  settingsPanel.style.display = 'block';
-  resultsPanel.style.display = 'none';
+  selectedQueueFile = null;
+  runIntentSnapshot = null;
   var list = document.getElementById('fileQueueList');
   if (list) list.innerHTML = '';
-  var queueStats = document.getElementById('queueStats');
-  if (queueStats) queueStats.style.display = 'none';
   updateQueueSummary();
+  renderDetailPane();
   emitCompareResultsChanged();
 }
 
@@ -1898,7 +2346,7 @@ async function startCompressionForPaths(isIncrement, requestedPaths) {
   var runRevision = queueRevision;
 
   var hasOutputAccess = true;
-  if (imagePaths.length > 0 && processingMode === 'system') {
+  if (imagePaths.length > 0 && systemModeActive()) {
     try {
       hasOutputAccess = await ensureSystemOutputAccess();
     } catch (error) {
@@ -1963,13 +2411,14 @@ async function startCompressionForPaths(isIncrement, requestedPaths) {
   }
   if (videoOptions) currentVideoOptions = videoOptions;
   currentCompressOptions = batchOptions;
+  // 拍下这一轮的意图：中途用户改 chips 时，正在跑的这一批仍然按开跑时的说法汇报。
+  runIntentSnapshot = {
+    image: imageRequestFromIntent(),
+    video: videoPaths.length > 0 ? videoRequestFromIntent() : null,
+  };
   var session = beginExecutionSession(batchPaths);
   var targetItems = new Map(batchPaths.map(function(filePath) { return [filePath, queueItems.get(filePath)]; }));
   var settled = new Set();
-
-  var queueStats = document.getElementById('queueStats');
-  if (queueStats) queueStats.style.display = 'flex';
-  updateStats();
 
   updateQueueSummary();
 
@@ -2015,7 +2464,7 @@ async function startCompressionForPaths(isIncrement, requestedPaths) {
       item.result = result;
       item.state = result.success ? 'done' : 'failed';
       paintQueueRow(file);
-      updateStats();
+      if (file === selectedQueueFile) renderDetailPane();
       updateQueueSummary();
       emitCompareResultsChanged();
       return;
@@ -2088,7 +2537,7 @@ async function startCompressionForPaths(isIncrement, requestedPaths) {
       item.result = result;
       item.state = stage === 'failed' || (!result.success && !result.skippedLarger) ? 'failed' : 'done';
       paintQueueRow(path);
-      updateStats();
+      if (path === selectedQueueFile) renderDetailPane();
       updateQueueSummary();
       emitCompareResultsChanged();
       return;
@@ -2171,12 +2620,13 @@ async function startCompressionForPaths(isIncrement, requestedPaths) {
       });
     });
     if (runRevision === queueRevision) {
-      updateStats();
-      showResults();
+      // 收尾结果可能补偿丢失的事件：把每一行和详情列照最终状态重画一遍。
+      renderFileQueue();
+      renderDetailPane();
     }
   } catch (err) {
     console.error('Compression error:', err);
-    showToast((processingMode === 'system' ? localizeUiText('转换出错: ') : localizeUiText('压缩出错: ')) + (err.message || err));
+    showToast((systemModeForRun() ? localizeUiText('转换出错: ') : localizeUiText('压缩出错: ')) + (err.message || err));
   } finally {
     try { unlisten(); } catch (e) {}
     try { unlistenVideo(); } catch (e) {}
@@ -2198,30 +2648,353 @@ async function startCompressionForPaths(isIncrement, requestedPaths) {
   }
 }
 
-function updateStats() {
-  let totalOriginal = 0;
-  let totalCompressed = 0;
+// ─── 运行条 + 详情列（只从队列、状态机与结果派生）─────────────────
 
-  const all = queueResults();
-  for (const r of all) {
-    if (r.success) {
-      totalOriginal += r.originalSize || 0;
-      totalCompressed += r.compressedSize || 0;
-    }
-  }
-
-  const savings = totalOriginal - totalCompressed;
-  const rate = totalOriginal > 0 ? ((savings / totalOriginal) * 100) : 0;
-
-  statOriginal.textContent = formatBytes(totalOriginal);
-  statCompressed.textContent = formatBytes(totalCompressed);
-  totalSavings.textContent = formatBytes(savings);
-  totalRate.textContent = rate.toFixed(1) + '%';
+/// 队列的体积账：只统计**真的落盘成功**的那些项。
+/// 图片与视频的结果字段名不同（compressedSize / outputBytes），在这里归成同一本账。
+function queueTotals() {
+  var totals = { original: 0, output: 0, count: 0 };
+  queueResults().forEach(function(result) {
+    if (!result || !result.success) return;
+    var before = Number(result.originalSize !== undefined ? result.originalSize : result.originalBytes) || 0;
+    var after = Number(result.compressedSize !== undefined ? result.compressedSize : result.outputBytes) || 0;
+    totals.original += before;
+    totals.output += after;
+    totals.count += 1;
+  });
+  totals.saved = totals.original - totals.output;
+  totals.rate = totals.original > 0 ? (totals.saved / totals.original) * 100 : 0;
+  return totals;
 }
 
-function showResults() {
-  resultsPanel.style.display = 'none';
-  resultsList.innerHTML = '';
+/// 阶段文案。**每条都有出处**：数字来自队列快照，词来自状态机，
+/// 没有一个字是"看起来应该在跑"猜出来的。
+function runPhaseText(p) {
+  if (p.total === 0) return localizeUiText('队列为空');
+  if (compressionState === COMPRESSION_PAUSED) return localizeUiText('已暂停');
+  if (compressionState === COMPRESSION_STOPPING) return localizeUiText('正在停止');
+  if (compressionState === COMPRESSION_RUNNING) return processingActionText('progress');
+  // 空闲：这一轮结束了，剩下的取决于队列里还有没有活。
+  if (p.pending > 0 && p.processed > 0) return localizeUiText('已停止');
+  if (p.pending > 0) return localizeUiText('未开始');
+  if (p.failed > 0) return localizeUiText('结束');
+  return processingActionText('done');
+}
+
+function renderRunBar(p) {
+  var progress = p || getQueueProgress();
+  var fill = document.getElementById('runProgressFill');
+  if (fill) fill.style.width = progress.total === 0 ? '0%' : (progress.processed / progress.total * 100) + '%';
+
+  var phase = document.getElementById('runPhase');
+  if (phase) {
+    phase.textContent = runPhaseText(progress)
+      + (progress.total > 0 ? ' · ' + progress.processed + ' / ' + progress.total : '');
+  }
+
+  var gain = document.getElementById('runGain');
+  if (gain) {
+    var totals = queueTotals();
+    gain.className = 'run-gain' + (totals.saved > 0 ? ' is-good' : totals.saved < 0 ? ' is-bad' : '');
+    gain.textContent = totals.count === 0 ? ''
+      : (totals.saved >= 0 ? localizeUiText('省 ') : localizeUiText('多 ')) + formatBytes(Math.abs(totals.saved))
+        + ' · ' + Math.abs(totals.rate).toFixed(1) + '%'
+        + (totals.count > 0 ? localizeUiText(' · ') + totals.count + localizeUiText(' 个产物') : '');
+  }
+
+  var cpu = document.getElementById('runCpu');
+  if (cpu) cpu.textContent = cpuLimitText().replace(/^ · /, '');
+
+  var dot = document.getElementById('railRunningDot');
+  if (dot) {
+    dot.hidden = !isCompressing;
+    dot.classList.toggle('is-paused', compressionState === COMPRESSION_PAUSED);
+  }
+}
+
+/// 选中一项：行上只有一条选中线，详情列写的就是这一项的全部真相。
+/// 重新画旧行 + 新行，而不是直接改 class —— 行的画法永远只有 paintQueueRow 一处。
+function selectQueueFile(filePath) {
+  var previous = selectedQueueFile;
+  selectedQueueFile = filePath || null;
+  if (previous && previous !== selectedQueueFile) paintQueueRow(previous);
+  if (selectedQueueFile) paintQueueRow(selectedQueueFile);
+  renderDetailPane();
+}
+
+function detailSection(parent, className) {
+  var el = document.createElement('div');
+  el.className = className;
+  parent.appendChild(el);
+  return el;
+}
+
+function detailText(parent, className, text, title) {
+  var el = document.createElement('div');
+  el.className = className;
+  el.textContent = text;
+  if (title) el.title = title;
+  parent.appendChild(el);
+  return el;
+}
+
+/// 键值表。**没有值的键一律不写**：宁可少一行，也不放一个"（未提供）"进去，
+/// 因为那既不是用户能改的东西，也不是这一版引擎会上报的东西。
+function detailSpecs(parent, pairs) {
+  var rows = pairs.filter(function(pair) { return pair[1] !== null && pair[1] !== undefined && pair[1] !== ''; });
+  if (!rows.length) return;
+  var grid = document.createElement('div');
+  grid.className = 'spec-grid';
+  rows.forEach(function(pair) {
+    var key = document.createElement('span');
+    key.className = 'spec-key';
+    key.textContent = pair[0];
+    var value = document.createElement('span');
+    value.className = 'spec-value';
+    value.textContent = pair[1];
+    grid.appendChild(key);
+    grid.appendChild(value);
+  });
+  parent.appendChild(grid);
+}
+
+function detailCallout(parent, tone, text) {
+  if (!text) return;
+  var box = detailSection(parent, 'detail-callout' + (tone ? ' ' + tone : ''));
+  var icon = document.createElement('span');
+  icon.innerHTML = iconMarkup(tone === 'is-error' ? 'error' : tone === 'is-ok' ? 'check' : 'warning', true);
+  box.appendChild(icon);
+  var body = document.createElement('span');
+  body.textContent = text;
+  box.appendChild(body);
+}
+
+/// 详情列的动作**带文字**：行上那一排图标是快捷方式，这里才是把"按下去会发生什么"说清楚的地方。
+function detailActions(parent, defs) {
+  var rows = defs.filter(function(def) { return !!def; });
+  if (!rows.length) return;
+  var box = detailSection(parent, 'detail-actions');
+  rows.forEach(function(def) {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-small ' + (def.ghost ? 'btn-ghost' : 'btn-secondary');
+    btn.innerHTML = iconMarkup(def.icon, true) + ' ' + def.label;
+    if (def.title) btn.title = def.title;
+    btn.disabled = !!def.disabled;
+    btn.addEventListener('click', def.onClick);
+    box.appendChild(btn);
+  });
+}
+
+/// 预览画的是**原素材**：那是用户认得出的一张图。压缩后的差别交给对比窗口。
+function detailPreviewFile(container, filePath) {
+  var box = detailSection(container, 'detail-preview');
+  var img = document.createElement('img');
+  img.alt = '';
+  img.draggable = false;
+  box.appendChild(img);
+  loadOriginalImage(img, filePath);
+}
+
+/// 视频没有"原图"可读，能拿到的就是抽出来的封面帧：直接给它一个 src。
+function detailPreviewSrc(container, src) {
+  if (!src) return;
+  var box = detailSection(container, 'detail-preview');
+  var img = document.createElement('img');
+  img.alt = '';
+  img.draggable = false;
+  img.src = src;
+  box.appendChild(img);
+}
+
+/// 详情列画什么，全看选中项**此刻**在队列里的状态。
+function renderDetailPane() {
+  var body = document.getElementById('detailBody');
+  if (!body) return;
+  body.innerHTML = '';
+  var filePath = selectedQueueFile;
+  var item = filePath ? queueItems.get(filePath) : null;
+  if (!item) {
+    detailText(body, 'detail-hint', localizeUiText('选择左侧的文件看详情'));
+    return;
+  }
+  if (item.mediaKind === 'video') buildVideoDetail(body, filePath, item);
+  else buildImageDetail(body, filePath, item);
+}
+
+function statusWord(state, result) {
+  if (state === 'running') return taskStatusMarkup('running').text;
+  if (state === 'pending') return taskStatusMarkup(waitingRowStatus()).text;
+  if (state === 'failed') return localizeUiText('失败');
+  if (state === 'restored') return localizeUiText('已恢复');
+  if (state === 'removed') return localizeUiText('已移除');
+  if (state === 'done') return result && result.skippedLarger ? localizeUiText('已跳过（更大）') : localizeUiText('已完成');
+  return '';
+}
+
+function buildImageDetail(body, filePath, item) {
+  var result = item.result;
+  var state = item.state;
+  detailText(body, 'detail-eyebrow', localizeUiText('图片 · ') + statusWord(state, result));
+  detailText(body, 'detail-title', basename(filePath), filePath);
+  detailPreviewFile(body, filePath);
+
+  if (result && result.success) {
+    var hero = detailSection(body, 'detail-hero' + (result.savings > 0 ? ' is-good' : ''));
+    detailText(hero, 'detail-hero-number',
+      (result.savings >= 0 ? '-' : '+') + Math.abs(result.savings).toFixed(1) + '%');
+    detailText(hero, 'detail-hero-note',
+      formatBytes(result.originalSize) + ' → ' + formatBytes(result.compressedSize));
+    var chain = detailSection(body, 'detail-chain');
+    [
+      result.sourceWidth ? result.sourceWidth + ' × ' + result.sourceHeight : '',
+      imageTypeLabel(filePath),
+      '→',
+      result.outputWidth ? result.outputWidth + ' × ' + result.outputHeight : '',
+      result.type,
+    ].filter(Boolean).forEach(function(part) {
+      var span = document.createElement('span');
+      span.className = part === '→' ? 'chain-arrow' : '';
+      span.textContent = part;
+      chain.appendChild(span);
+    });
+    detailSpecs(body, [
+      [localizeUiText('算法'), result.algorithm],
+      [localizeUiText('输出格式'), result.type],
+      [localizeUiText('耗时'), Number.isFinite(result.elapsedMs) ? (result.elapsedMs / 1000).toFixed(2) + ' s' : ''],
+      [localizeUiText('体积目标'), result.targetBytes ? formatBytes(result.targetBytes) : ''],
+      [localizeUiText('是否达标'), result.targetMet === true ? localizeUiText('达标')
+        : result.targetMet === false ? localizeUiText('未达标') : ''],
+      [localizeUiText('输出位置'), result.outputPath || ''],
+    ]);
+    // 未达标必须单独说，不能埋在数字里：省了多少不是用户在这轮唯一的期待。
+    var warn = (result.warnings || []).join('\n');
+    detailCallout(body, result.targetMet === false ? '' : warn ? '' : 'is-ok',
+      result.targetMet === false
+        ? localizeUiText('没能在预算内达标：给出的是这一轮最小的有效结果。') + (warn ? '\n' + warn : '')
+        : warn || localizeUiText('有效且更小，已按默认规则采用。'));
+    detailActions(body, [
+      { label: localizeUiText('另存为'), icon: 'save', onClick: function() { saveResult(filePath); } },
+      { label: localizeUiText('对比查看'), icon: 'compare', onClick: function() { openCompareByFile(filePath); } },
+      { label: localizeUiText(result.outputMode === 'replace' ? '恢复原图' : '删除这次结果'),
+        icon: result.outputMode === 'replace' ? 'restore' : 'trash',
+        onClick: function() { restoreOriginal(filePath); } },
+      { label: localizeUiText('在访达中显示'), icon: 'finder', onClick: function() { openInFinder(filePath); } },
+      { label: localizeUiText('复制日志'), icon: 'copy', ghost: true, onClick: function() { copyCompressLog(result); } },
+    ]);
+  } else if (state === 'failed') {
+    detailCallout(body, 'is-error', (result && result.error) || localizeUiText('这次压缩没有成功'));
+    detailSpecs(body, [[localizeUiText('原始大小'), item.originalSize ? formatBytes(item.originalSize) : '']]);
+    detailActions(body, [
+      { label: localizeUiText('重试这一个'), icon: 'recompress', onClick: function() { compressOneFile(filePath); } },
+      result ? { label: localizeUiText('复制日志'), icon: 'copy', ghost: true, onClick: function() { copyCompressLog(result); } } : null,
+    ]);
+  } else if (state === 'restored') {
+    detailCallout(body, 'is-ok', localizeUiText('原图已恢复，压缩产物已按记录处理。'));
+    detailActions(body, [
+      { label: localizeUiText('重新压缩这一个'), icon: 'recompress', onClick: function() { compressOneFile(filePath); } },
+    ]);
+  } else {
+    // 还没开始：详情列说清楚"接下来会对它做什么"，以及现在已知的事实。
+    var next = requestForNext('image');
+    detailText(body, 'detail-chain', localizeUiText(next.summary || ''));
+    detailSpecs(body, [
+      [localizeUiText('原始大小'), item.originalSize ? formatBytes(item.originalSize) : ''],
+      [localizeUiText('输出方式'), outputModeLabel()],
+      [localizeUiText('元数据'), next.options.processingMode === 'system'
+        ? (next.options.preserveMetadata !== false ? localizeUiText('尽量保留（系统转换）') : localizeUiText('不保留'))
+        : localizeUiText('高级路径重编码后不保留')],
+    ]);
+    detailCallout(body, '', localizeUiText(next.warning || ''));
+    detailActions(body, [
+      { label: localizeUiText('立即压缩这一个'), icon: 'recompress', disabled: isCompressing,
+        onClick: function() { compressOneFile(filePath); } },
+      { label: localizeUiText('移出队列'), icon: 'minus', ghost: true, disabled: state !== 'pending',
+        onClick: function() { removeQueueFile(filePath); } },
+    ]);
+  }
+  detailText(body, 'detail-path', dirname(filePath));
+}
+
+function outputModeLabel() {
+  var mode = currentOutputMode();
+  if (mode === 'replace') return localizeUiText('覆盖原文件（保留可恢复的备份）');
+  if (mode === 'folder') return localizeUiText('输出到 ') + (outputDir || localizeUiText('（还没选目录）'));
+  return localizeUiText('同目录 · ') + getOutputSuffix() + localizeUiText(' 后缀');
+}
+
+function buildVideoDetail(body, filePath, item) {
+  var result = item.result;
+  var probe = item.videoProbe || {};
+  var summary = window.SizqoVideo.videoSummary(probe);
+  detailText(body, 'detail-eyebrow', localizeUiText('视频 · ') + statusWord(item.state, result));
+  detailText(body, 'detail-title', basename(filePath), filePath);
+  if (item.coverUrl) detailPreviewSrc(body, item.coverUrl);
+
+  if (result && result.success) {
+    var savings = Number.isFinite(result.savings) ? result.savings
+      : (result.originalBytes > 0 && result.outputBytes ? (result.originalBytes - result.outputBytes) / result.originalBytes * 100 : 0);
+    var hero = detailSection(body, 'detail-hero' + (savings > 0 ? ' is-good' : ''));
+    detailText(hero, 'detail-hero-number', (savings >= 0 ? '-' : '+') + Math.abs(savings).toFixed(1) + '%');
+    detailText(hero, 'detail-hero-note',
+      formatBytes(result.originalBytes) + ' → ' + formatBytes(result.outputBytes || 0));
+    var chain = detailSection(body, 'detail-chain');
+    [summary.duration, summary.dimensions, summary.frameRate, '→', result.encoderActual]
+      .filter(Boolean).forEach(function(part) {
+        var span = document.createElement('span');
+        span.className = part === '→' ? 'chain-arrow' : '';
+        span.textContent = part;
+        chain.appendChild(span);
+      });
+    detailSpecs(body, [
+      [localizeUiText('编码器'), result.encoderActual],
+      [localizeUiText('后端'), result.backendActual],
+      [localizeUiText('耗时'), window.SizqoVideo.formatDurationUs((result.elapsedMs || 0) * 1000)],
+      [localizeUiText('音轨策略'), (result.compressOptions || {}).audioPolicy || ''],
+      [localizeUiText('输出位置'), result.outputPath || ''],
+    ]);
+    detailCallout(body, (result.warnings || []).length ? '' : 'is-ok',
+      (result.warnings || []).join('\n') || localizeUiText('已重新探测并完整解码校验后才提交。'));
+    detailActions(body, [
+      result.outputPath ? { label: localizeUiText('播放结果'), icon: 'play', onClick: function() { openMediaFile(result.outputPath); } } : null,
+      { label: localizeUiText('同帧对比'), icon: 'compare',
+        onClick: function() { openVideoCompareForResult(result); } },
+      { label: localizeUiText(result.outputMode === 'replace' ? '恢复原视频' : '删除这次结果'),
+        icon: result.outputMode === 'replace' ? 'restore' : 'trash',
+        onClick: function() { restoreVideoResult(result); } },
+      { label: localizeUiText('在访达中显示'), icon: 'finder', onClick: function() { openInFinder(filePath); } },
+      { label: localizeUiText('查看日志'), icon: 'copy', ghost: true, onClick: function() { copyVideoLog(result); } },
+    ]);
+  } else if (item.state === 'failed') {
+    detailCallout(body, 'is-error', (result && (result.reason || result.error)) || videoWarningText(item));
+    detailActions(body, [
+      { label: localizeUiText('重试这一个'), icon: 'recompress', disabled: !videoCapabilities.available,
+        onClick: function() { compressOneFile(filePath); } },
+      result ? { label: localizeUiText('查看日志'), icon: 'copy', ghost: true, onClick: function() { copyVideoLog(result); } } : null,
+    ]);
+  } else {
+    detailSpecs(body, [
+      [localizeUiText('时长'), summary.duration],
+      [localizeUiText('尺寸'), summary.dimensions],
+      [localizeUiText('帧率'), summary.frameRate],
+      [localizeUiText('编码'), summary.codec],
+      [localizeUiText('音轨'), videoAudioSummary(probe)],
+      [localizeUiText('原始大小'), item.originalSize ? formatBytes(item.originalSize) : ''],
+    ]);
+    var estimate = videoProgressNumbers(item);
+    detailText(body, 'detail-chain', localizeUiText(requestForNext('video').summary || '')
+      + (estimate ? ' · ' + estimate : ''));
+    detailCallout(body, '', videoWarningText(item)
+      || (!estimate && item.state === 'pending' ? localizeUiText('这个素材还没有可靠的体积估算。') : ''));
+    detailActions(body, [
+      { label: localizeUiText('立即压缩这一个'), icon: 'recompress',
+        disabled: isCompressing || !videoCapabilities.available,
+        onClick: function() { compressOneFile(filePath); } },
+      { label: localizeUiText('移出队列'), icon: 'minus', ghost: true, disabled: item.state !== 'pending',
+        onClick: function() { removeQueueFile(filePath); } },
+    ]);
+  }
+  detailText(body, 'detail-path', dirname(filePath));
 }
 
 /// 单个文件重新压一次 = 把它放回 pending，然后开一轮只含它的会话。
@@ -2270,7 +3043,6 @@ var RESTORE_CONFLICT_TEXT = localizeUiText('这个文件在压缩后又被修改
 function afterRestore(filePath, skipRefresh) {
   markQueueRowRestored(filePath);
   if (skipRefresh) return;
-  showResults();
   updateQueueSummary();
   emitCompareResultsChanged();
   refreshHistoryIfOpen();
@@ -2327,7 +3099,7 @@ async function restoreAllOriginals() {
   (outcome.restoredFiles || []).forEach(function(filePath) {
     afterRestore(filePath, true);
   });
-  showResults();
+  renderDetailPane();
   updateQueueSummary();
   emitCompareResultsChanged();
 }
@@ -2340,30 +3112,6 @@ async function exportAll() {
   showToast(localizeUiText('已导出 ') + count + localizeUiText(' 个文件到原目录（') + suffix + localizeUiText(' 后缀）'));
 }
 
-function clearResults() {
-  var wasCompressing = isCompressing;
-  queueRevision++;
-  if (wasCompressing && executionSession) {
-    invoke('cancel_batch', { filePaths: executionSession.targetPaths.slice() }).catch(function() {});
-  }
-  files = [];
-  inputPaths = [];
-  queueItems = new Map();
-  fileRows = {};
-  pendingAutoCompress = false;
-  resultsList.innerHTML = '';
-  resultsPanel.style.display = 'none';
-  var queuePanel = document.getElementById('queuePanel');
-  if (queuePanel) queuePanel.style.display = 'none';
-  var queueStats = document.getElementById('queueStats');
-  if (queueStats) queueStats.style.display = 'none';
-  settingsPanel.style.display = 'block';
-  var list = document.getElementById('fileQueueList');
-  if (list) list.innerHTML = '';
-  updateQueueSummary();
-  emitCompareResultsChanged();
-}
-
 function formatBytes(bytes) {
   if (bytes === 0) return '0B';
   if (bytes < 1024) return bytes.toFixed(1) + 'B';
@@ -2371,9 +3119,11 @@ function formatBytes(bytes) {
   return (bytes / (1024 * 1024)).toFixed(1) + 'MB';
 }
 
-// ─── 页面导航（main / history / settings）───────────────────────
-// 只切换 display：文件队列 DOM 与正在跑的压缩任务都不动，所以压缩中途也能进历史/设置。
+// ─── 页面导航（本轮 / 历史 / 设置）───────────────────────────────
+// 只切换 pane 的 hidden：文件队列 DOM 与正在跑的压缩任务都不动，所以压缩中途也能进历史/设置。
 var VIEWS = ['main', 'history', 'settings'];
+var RAIL_KEYS = { main: 'workspace', history: 'history', settings: 'settings' };
+var VIEW_TITLES = { main: '媒体工作台', history: '压缩历史', settings: '设置' };
 var currentView = 'main';
 
 function showView(name) {
@@ -2381,15 +3131,17 @@ function showView(name) {
   currentView = view;
   VIEWS.forEach(function(id) {
     var el = document.getElementById(id + 'View');
-    if (el) el.style.display = id === view ? '' : 'none';
+    if (el) el.hidden = id !== view;
   });
-  var historyBtn = document.getElementById('historyViewBtn');
-  if (historyBtn) historyBtn.classList.toggle('active', view === 'history');
-  var settingsBtn = document.getElementById('settingsViewBtn');
-  if (settingsBtn) settingsBtn.classList.toggle('active', view === 'settings');
-  // 媒体导航（全部/图片/视频/历史）的高亮也由 currentView + mediaFilter 派生，
-  // 不刷新的话从历史页回来或进历史页时 tab 状态会停在旧位置。
-  if (typeof updateMediaNavigation === 'function') updateMediaNavigation();
+  // 高亮只从 currentView 派生，绝不去读 CSS class 反推"现在在哪个页"。
+  document.querySelectorAll('.rail-button').forEach(function(button) {
+    var active = button.dataset.rail === RAIL_KEYS[view];
+    button.classList.toggle('active', active);
+    if (active) button.setAttribute('aria-current', 'page');
+    else button.removeAttribute('aria-current');
+  });
+  var context = document.getElementById('titlebarContext');
+  if (context) context.textContent = localizeUiText(VIEW_TITLES[view]);
   // 每次进入都重新读盘：历史是后端状态，不能只信启动时那份快照。
   if (view === 'history') refreshHistory();
   if (view === 'settings') { loadRetentionSetting(); loadCpuSetting(); initUpdatePanel(); }
@@ -2481,12 +3233,17 @@ function taskStatusMarkup(status) {
   }
 }
 
+/// 状态写进两处：最右的状态图标 + 「结论」那一列的文字。
+/// 图标只是提示，**文字才是承诺**：暂停必须能在文字里读出来，不能只靠换一张图。
 function renderTaskStatus(row, status) {
   if (!row) return;
   var markup = taskStatusMarkup(status);
-  var icon = row.querySelector('.queue-item-icon');
-  if (icon) icon.innerHTML = markup.icon;
-  var text = row.querySelector('.queue-item-status');
+  var icon = row.querySelector('.media-state-icon');
+  if (icon) {
+    icon.className = 'media-state-icon ' + (status === 'paused' ? 'pending' : status);
+    icon.innerHTML = markup.icon;
+  }
+  var text = row.querySelector('.media-meta');
   if (text) text.textContent = markup.text;
 }
 
@@ -2782,9 +3539,10 @@ function copyHistoryLog(entry) {
   lines.push(localizeUiText('输出: ') + (entry.outputPath || entry.sourcePath));
   lines.push(localizeUiText('输出方式: ') + entry.outputMode);
   if (entry.mediaKind === 'video') {
+    var meta = entry.videoMetadata || {};
     lines.push('mediaKind: video');
-    lines.push('encoder: ' + (entry.algorithm || entry.encoderActual || localizeUiText('(未知)')));
-    lines.push('metadata: ' + JSON.stringify(entry.videoMetadata || {}));
+    lines.push('encoder: ' + (entry.algorithm || meta.encoderActual || localizeUiText('(未知)')));
+    lines.push('metadata: ' + JSON.stringify(meta));
   }
   if (entry.status === 'recoveryAvailable') {
     lines.push(localizeUiText('明细: 已丢失（这条记录是按原图备份重建出来的）'));
@@ -2798,72 +3556,144 @@ function copyHistoryLog(entry) {
   lines.push('');
   lines.push(localizeUiText('--- 原图备份 ---'));
   lines.push(entry.backupPath || localizeUiText('(无)'));
-  copyTextToClipboard(lines.join('\n'));
-  showToast(localizeUiText('压缩日志已复制到剪贴板'));
+  var ok = copyTextToClipboard(lines.join('\n'));
+  showToast(ok ? localizeUiText('压缩日志已复制到剪贴板') : localizeUiText('复制失败，请手动选中日志文本'));
 }
 
+/// 历史行与本轮队列行**共用同一套格子**：同一 kinds 的事实放在同一列，
+/// 用户不必在两页之间重新学一遍布局。
 function historyRow(entry) {
-  var row = document.createElement('div');
   var isRecovery = entry.status === 'recoveryAvailable';
-  row.className = 'history-item'
-    + (entry.status === 'restored' || isRecovery ? ' restored' : '');
+  var isVideo = entry.mediaKind === 'video';
+  var row = document.createElement('div');
+  row.className = 'media-item' + (isRecovery ? ' failed' : entry.status === 'restored' ? '' : ' done');
+  row.dataset.historyId = entry.id;
+  row.innerHTML =
+    '<span class="media-thumb"></span>' +
+    '<span class="media-title"><span class="media-name"></span><span class="media-sub"></span></span>' +
+    '<span class="media-meta"></span>' +
+    '<span class="media-size"></span>' +
+    '<span class="media-status"><span class="media-state-icon"></span><span class="media-actions"></span></span>';
 
-  var icon = document.createElement('span');
-  icon.className = 'history-icon';
-  icon.innerHTML = iconMarkup(
-    isRecovery ? 'warning' : (entry.status === 'restored' ? 'restore' : 'check'),
-    true);
+  row.querySelector('.media-thumb').innerHTML = iconMarkup(isVideo ? 'video' : 'image', true);
+  var stateIcon = row.querySelector('.media-state-icon');
+  stateIcon.className = 'media-state-icon ' + (isRecovery ? 'failed' : entry.status === 'restored' ? 'restored' : 'done');
+  stateIcon.innerHTML = iconMarkup(isRecovery ? 'warning' : entry.status === 'restored' ? 'restore' : 'check', true);
 
-  var main = document.createElement('span');
-  main.className = 'history-main';
-  var name = document.createElement('span');
-  name.className = 'history-name';
+  var name = row.querySelector('.media-name');
   name.textContent = entry.fileName;
   name.title = entry.sourcePath;
-  var sub = document.createElement('span');
-  sub.className = 'history-sub';
-  sub.textContent = (entry.mediaKind === 'video' ? localizeUiText('视频') + ' · ' : '') + dirname(entry.sourcePath) + ' · ' + historyStatusText(entry);
-  main.appendChild(name);
-  main.appendChild(sub);
+  var sub = row.querySelector('.media-sub');
+  sub.textContent = [historyTime(entry.createdAt), dirname(entry.sourcePath)].filter(Boolean).join(' · ');
+  sub.title = entry.sourcePath;
 
-  var metrics = document.createElement('span');
-  metrics.className = 'history-metrics';
-  var sizes = document.createElement('span');
-  sizes.textContent = formatBytes(entry.originalSize) + ' → ' + formatBytes(entry.compressedSize);
-  var saving = document.createElement('span');
+  var meta = row.querySelector('.media-meta');
   // 重建条目没有这次压缩的明细，报一个算出来的 0.0% 节省率是假数字。
-  saving.textContent = isRecovery ? localizeUiText('明细已丢失') : localizeUiText('节省 ') + Math.abs(entry.savings).toFixed(1) + '%';
-  metrics.appendChild(sizes);
-  metrics.appendChild(saving);
+  meta.textContent = isRecovery ? localizeUiText('明细已丢失（按原图备份重建）')
+    : historyStatusText(entry) + ' · ' + (entry.algorithm || entry.outType || '');
 
-  var when = document.createElement('span');
-  when.className = 'history-when';
-  var created = document.createElement('span');
-  created.textContent = historyTime(entry.createdAt);
-  var algo = document.createElement('span');
-  algo.textContent = isRecovery ? localizeUiText('按备份重建') : (entry.algorithm || entry.outType || '');
-  when.appendChild(created);
-  when.appendChild(algo);
+  var size = row.querySelector('.media-size');
+  size.textContent = formatBytes(entry.compressedSize);
+  size.title = formatBytes(entry.originalSize) + ' → ' + formatBytes(entry.compressedSize);
 
-  var actions = document.createElement('span');
-  actions.className = 'history-actions';
+  var actions = row.querySelector('.media-actions');
   historyRowActionDefs(entry).forEach(function(def) {
     var btn = document.createElement('button');
     btn.className = 'queue-action-btn';
     btn.type = 'button';
     btn.title = def.title;
+    btn.setAttribute('aria-label', def.title);
     btn.dataset.historyAction = def.action;
     btn.innerHTML = iconMarkup(def.icon, true);
     btn.addEventListener('click', function() { runHistoryAction(entry, def.action); });
     actions.appendChild(btn);
   });
 
-  row.appendChild(icon);
-  row.appendChild(main);
-  row.appendChild(metrics);
-  row.appendChild(when);
-  row.appendChild(actions);
+  row.classList.toggle('selected', selectedHistoryKey === entry.id);
+  row.addEventListener('click', function() { selectHistoryEntry(entry.id); });
   return row;
+}
+
+/// 选中一条历史：详情列写的就是这一条，包括"原图还在不在"这种此刻才成立的事实。
+function selectHistoryEntry(id) {
+  var previous = selectedHistoryKey;
+  selectedHistoryKey = id || null;
+  if (previous && previous !== id) {
+    var oldRow = document.querySelector('[data-history-id="' + cssEscape(previous) + '"]');
+    if (oldRow) oldRow.classList.remove('selected');
+  }
+  var row = document.querySelector('[data-history-id="' + cssEscape(id) + '"]');
+  if (row) row.classList.add('selected');
+  renderHistoryDetail();
+}
+
+function cssEscape(value) {
+  return window.CSS && CSS.escape ? CSS.escape(String(value)) : String(value).replace(/[^a-zA-Z0-9_-]/g, '\\$&');
+}
+
+/// 历史详情列：**这条记录此刻在磁盘上还剩什么**，以及因此还能做什么。
+/// 备份被清理、产物被手动删掉，都在这里如实反映，不靠状态字段猜测。
+function renderHistoryDetail() {
+  var body = document.getElementById('historyDetailBody');
+  if (!body) return;
+  body.innerHTML = '';
+  var entry = null;
+  for (var i = 0; i < historyEntries.length; i++) {
+    if (historyEntries[i].id === selectedHistoryKey) { entry = historyEntries[i]; break; }
+  }
+  if (!entry) {
+    detailText(body, 'detail-hint', localizeUiText('选择一条记录，看它此刻在磁盘上还剩什么'));
+    return;
+  }
+  var isVideo = entry.mediaKind === 'video';
+  var isRecovery = entry.status === 'recoveryAvailable';
+  var isReplace = entry.outputMode === 'replace';
+  var originalPath = isReplace ? (entry.backupExists ? entry.backupPath : null)
+    : (entry.sourceExists ? entry.sourcePath : null);
+
+  detailText(body, 'detail-eyebrow',
+    localizeUiText('历史记录 · ') + localizeUiText(isVideo ? '视频 · ' : '图片 · ') + historyStatusText(entry));
+  detailText(body, 'detail-title', entry.fileName, entry.sourcePath);
+  if (originalPath) detailPreviewFile(body, originalPath);
+  else if (entry.outputExists) detailPreviewFile(body, entry.outputPath || entry.sourcePath);
+
+  if (!isRecovery) {
+    var hero = detailSection(body, 'detail-hero' + (entry.savings > 0 ? ' is-good' : ''));
+    detailText(hero, 'detail-hero-number',
+      (entry.savings >= 0 ? '-' : '+') + Math.abs(entry.savings).toFixed(1) + '%');
+    detailText(hero, 'detail-hero-note',
+      formatBytes(entry.originalSize) + ' → ' + formatBytes(entry.compressedSize));
+    var chain = detailSection(body, 'detail-chain');
+    [entry.algorithm, entry.outType, isVideo ? localizeUiText('视频') : imageTypeLabel(entry.sourcePath)]
+      .filter(Boolean).forEach(function(part) {
+        var span = document.createElement('span');
+        span.textContent = part;
+        chain.appendChild(span);
+      });
+  }
+  detailSpecs(body, [
+    [localizeUiText('时间'), historyTime(entry.createdAt)],
+    [localizeUiText('保留至'), historyTime(entry.expiresAt)],
+    [localizeUiText('输出方式'), entry.outputMode],
+    [localizeUiText('压缩结果'), entry.outputExists
+      ? (entry.outputPath || entry.sourcePath) : localizeUiText('已不在磁盘上')],
+    [localizeUiText('原图备份'), isReplace
+      ? (entry.backupExists ? entry.backupPath : localizeUiText('已清理，无法恢复原图'))
+      : localizeUiText('原图从未被覆盖')],
+    [localizeUiText('原文件'), entry.sourceExists ? entry.sourcePath : localizeUiText('位置已不存在')],
+  ]);
+
+  if (isRecovery) {
+    detailCallout(body, '', localizeUiText('这条记录是从备份目录重建的：这次压缩的明细已无从得知，但备份还在，原图仍能恢复。'));
+  } else if (entry.status === 'restored') {
+    detailCallout(body, 'is-ok', localizeUiText('原图已在 ') + historyTime(entry.restoredAt) + localizeUiText(' 写回。'));
+  } else if (!entry.outputExists) {
+    detailCallout(body, '', localizeUiText('压缩结果已不在磁盘上（可能被手动删除）。'));
+  }
+  detailActions(body, historyRowActionDefs(entry).map(function(def) {
+    return { label: def.title, icon: def.icon, onClick: function() { runHistoryAction(entry, def.action); } };
+  }));
+  detailText(body, 'detail-path', entry.sourcePath);
 }
 
 /// 历史页那一行按下去要做的事。恢复和「删除这次压缩结果」共用 restore_history_entry
@@ -2889,6 +3719,11 @@ function renderHistory() {
     return historyFilter === 'all' || historyFilter === kind;
   });
   visibleEntries.forEach(function(entry) { list.appendChild(historyRow(entry)); });
+  // 选中项可能被保留策略或用户在别处的操作清掉了：只跟着真实存在的记录走。
+  var selectedStillExists = historyEntries.some(function(e) { return e.id === selectedHistoryKey; });
+  if (!selectedStillExists) selectedHistoryKey = null;
+  if (!selectedHistoryKey && visibleEntries.length > 0) selectedHistoryKey = visibleEntries[0].id;
+  renderHistoryDetail();
   var empty = document.getElementById('historyEmpty');
   if (empty) {
     empty.hidden = visibleEntries.length > 0;
@@ -3374,88 +4209,68 @@ async function checkDirectUpdate() {
     console.warn(localizeUiText('在线更新检查失败:'), error);
   }
 }
-
-function updateSettingsSummary() {
-  var ac = document.getElementById('autoCompress');
-  var q = document.getElementById('qualitySlider');
-  var of = document.getElementById('outputFormat');
-  var sm = document.getElementById('smartMode');
-  var om = document.querySelector('input[name="outputMode"]:checked');
-  var parts = [];
-  if (ac && ac.checked) parts.push(localizeUiText('自动'));
-  if (processingMode === 'system') {
-    var systemFormatSelect = document.getElementById('systemOutputFormat');
-    var systemSizeSelect = document.getElementById('systemImageSize');
-    parts.push(localizeUiText('系统'));
-    if (systemFormatSelect) parts.push(systemFormatSelect.options[systemFormatSelect.selectedIndex].text);
-    if (systemSizeSelect) parts.push(systemSizeSelect.options[systemSizeSelect.selectedIndex].text.split('（')[0]);
-  } else {
-    if (q) parts.push('Q' + q.value);
-    if (of) parts.push(of.value === 'original' ? localizeUiText('\u539f\u683c\u5f0f') : of.value.toUpperCase());
-    if (sm) parts.push(sm.checked ? localizeUiText('\u667a\u80fd') : localizeUiText('\u6807\u51c6'));
-  }
-  if (om) {
-    parts.push(om.value === 'replace' ? localizeUiText('\u8986\u76d6') : (om.value === 'suffix' ? localizeUiText('\u540e\u7f00') : localizeUiText('\u76ee\u5f55')));
-    if (om.value === 'suffix') parts.push(getOutputSuffix());
-  }
-  var el = document.getElementById('settingsSummary');
-  if (el) el.textContent = parts.join(' \u00b7 ');
-}
-
-function resetSettings() {
-  try { localStorage.removeItem('sizqo-settings'); } catch(e) {}
-  location.reload();
-}
-
+/// 落盘的是「意图 + 后果」：用户选的是要多小、文件落在哪。参数永远是 SizqoIntents
+/// 从意图现编译的（core/intent-model.md）—— 把编译结果存下来，等于让上一轮的残留
+/// 参数冒充这一轮的选择。
 function saveCompressSettings() {
-  var data = {};
-  data.processingMode = processingMode;
-  var systemFormatSelect = document.getElementById('systemOutputFormat');
-  if (systemFormatSelect) data.systemOutputFormat = systemFormatSelect.value;
-  var systemSizeSelect = document.getElementById('systemImageSize');
-  if (systemSizeSelect) data.systemImageSize = systemSizeSelect.value;
-  var preserveMetadataToggle = document.getElementById('preserveMetadata');
-  if (preserveMetadataToggle) data.preserveMetadata = preserveMetadataToggle.checked;
-  var q = document.getElementById('qualitySlider');
-  if (q) data.quality = q.value;
-  var of = document.getElementById('outputFormat');
-  if (of) data.outputFormat = of.value;
-  var cb = document.getElementById('compressionBackend');
-  if (cb) data.backend = cb.value;
-  var ce = document.getElementById('compressionEffort');
-  if (ce) data.effort = ce.value;
-  var ac = document.getElementById('autoCompress');
-  if (ac) data.autoCompress = ac.checked;
-  var sm = document.getElementById('smartMode');
-  if (sm) data.smartMode = sm.checked;
-  var cw = document.getElementById('convertToWebp');
-  if (cw) data.convertToWebp = cw.checked;
-  var om = document.querySelector('input[name="outputMode"]:checked');
-  if (om) data.outputMode = om.value;
-  if (outputSuffixInput) data.outputSuffix = outputSuffixInput.value;
-  try { localStorage.setItem('sizqo-settings', JSON.stringify(data)); } catch(e) {}
+  var auto = document.getElementById('autoCompress');
+  var data = {
+    version: 2,
+    imageIntent: imageIntent,
+    videoIntent: videoIntent,
+    autoCompress: !!(auto && auto.checked),
+    outputMode: currentOutputMode(),
+    outputSuffix: outputSuffixInput ? outputSuffixInput.value : '',
+  };
+  try { localStorage.setItem('sizqo-settings', JSON.stringify(data)); } catch (e) {}
 }
 
+/// 读回来的意图 id 必须在**当前平台**的可选列表里：systemConvert 只在 macOS 存在，
+/// 在别的系统恢复它就等于一个用户看不见、却驱动着整条请求的意图。
 function loadCompressSettings() {
-  var raw;
-  try { raw = localStorage.getItem('sizqo-settings'); } catch(e) { return; }
-  if (!raw) return;
-  var data;
-  try { data = JSON.parse(raw); } catch(e) { return; }
-  if (!data) return;
-  if (data.systemOutputFormat != null) { var systemFormatSelect = document.getElementById('systemOutputFormat'); if (systemFormatSelect) systemFormatSelect.value = data.systemOutputFormat; }
-  if (data.systemImageSize != null) { var systemSizeSelect = document.getElementById('systemImageSize'); if (systemSizeSelect) systemSizeSelect.value = data.systemImageSize; }
-  if (data.preserveMetadata != null) { var preserveMetadataToggle = document.getElementById('preserveMetadata'); if (preserveMetadataToggle) preserveMetadataToggle.checked = data.preserveMetadata; }
-  if (data.quality != null) { var q = document.getElementById('qualitySlider'); if (q) q.value = data.quality; }
-  if (data.outputFormat != null) { var of = document.getElementById('outputFormat'); if (of) of.value = data.outputFormat; }
-  if (data.backend != null) { var cb = document.getElementById('compressionBackend'); if (cb) cb.value = data.backend; }
-  if (data.effort != null) { var ce = document.getElementById('compressionEffort'); if (ce) ce.value = data.effort; }
-  if (data.autoCompress != null) { var ac = document.getElementById('autoCompress'); if (ac) ac.checked = data.autoCompress; }
-  if (data.smartMode != null) { var sm = document.getElementById('smartMode'); if (sm) sm.checked = data.smartMode; }
-  if (data.convertToWebp != null) { var cw = document.getElementById('convertToWebp'); if (cw) cw.checked = data.convertToWebp; }
-  if (data.outputMode != null) { var om = document.querySelector('input[name="outputMode"][value="' + data.outputMode + '"]'); if (om) om.checked = true; }
-  if (data.outputSuffix != null && outputSuffixInput) { outputSuffixInput.value = String(data.outputSuffix); }
-  processingMode = data.processingMode === 'system' ? 'system' : 'advanced';
+  var data = null;
+  try { data = JSON.parse(localStorage.getItem('sizqo-settings') || 'null'); } catch (e) {}
+  if (!data || typeof data !== 'object') return;
+
+  var savedImage = data.imageIntent;
+  if (savedImage && typeof savedImage === 'object') {
+    var allowedImages = window.SizqoIntents.imageIntentList(isMacOS());
+    if (allowedImages.some(function (intent) { return intent.id === savedImage.intent; })) {
+      imageIntent.intent = savedImage.intent;
+    }
+    ['quality', 'outputFormat', 'systemOutputFormat', 'systemImageSize', 'preserveMetadata',
+     'maxDimensionPx', 'maxOutputBytes'].forEach(function (key) {
+      if (savedImage[key] !== undefined) imageIntent[key] = savedImage[key];
+    });
+  }
+  var savedVideo = data.videoIntent;
+  if (savedVideo && typeof savedVideo === 'object') {
+    if (window.SizqoIntents.VIDEO_INTENTS.some(function (intent) { return intent.id === savedVideo.intent; })) {
+      videoIntent.intent = savedVideo.intent;
+    }
+    var miB = parseFloat(savedVideo.targetMiB);
+    if (Number.isFinite(miB) && miB > 0) videoIntent.targetMiB = miB;
+  }
+
+  var auto = document.getElementById('autoCompress');
+  if (auto) auto.checked = !!data.autoCompress;
+  if (['replace', 'suffix', 'folder'].indexOf(data.outputMode) >= 0) {
+    var radio = document.querySelector('input[name="outputMode"][value="' + data.outputMode + '"]');
+    if (radio) radio.checked = true;
+  }
+  if (outputSuffixInput && typeof data.outputSuffix === 'string') outputSuffixInput.value = data.outputSuffix;
+
+  // 意图回来了，控件得跟着铺成它真正会跑的那套值。
+  if (imageIntent.intent === 'custom' || imageIntent.intent === 'systemConvert') paintImageStateControls();
+  else paintImageRawControls(imageRequestFromIntent());
+}
+
+/// 设置页的「还原默认设置」清掉两套落盘：只清图片那份会留下一个
+/// "看着恢复了、视频参数却还是上次的"的半新状态。
+function resetSettings() {
+  try { localStorage.removeItem('sizqo-settings'); } catch (e) {}
+  try { localStorage.removeItem('sizqo-video-settings'); } catch (e) {}
+  location.reload();
 }
 
 // Init
@@ -3470,30 +4285,34 @@ function loadCompressSettings() {
   listen('update-progress', function(event) {
     applyUpdateProgress(event.payload || 0);
   }).catch(function() {});
+
   loadCompressSettings();
-  // 视频预设/编码器下拉由能力探测结果填充：启动即渲染「检测中」占位，
-  // 探测完成后 renderVideoCapabilities 会替换成真实选项。
+  loadVideoSettings();
+  // 自定义之外，视频控件只是意图的展开显示：存回来的意图要把参数铺成这一套。
+  if (videoIntent.intent !== 'videoCustom') applyVideoOptions(videoRequestFromIntent().options);
+  bindIntentControls();
+  bindVideoSettings();
+
+  var auto = document.getElementById('autoCompress');
+  if (auto) auto.addEventListener('change', function() {
+    saveCompressSettings();
+    updateAutoCompressLabel();
+  });
+  if (outputSuffixInput) outputSuffixInput.addEventListener('input', function() {
+    saveCompressSettings();
+    renderDetailPane();
+  });
+
   renderVideoCapabilities();
   loadVideoCapabilities();
   // 队列摘要里的「CPU 4/10」需要在进入设置页之前就拿到，所以启动即检测一次。
   loadCpuSetting().then(function() { updateQueueSummary(); }).catch(function() {});
-  var modeSwitch = document.getElementById('processingModeSwitch');
-  var isMac = /Macintosh|Mac OS X/.test(navigator.userAgent);
-  if (modeSwitch && !isMac) modeSwitch.style.display = 'none';
-  setProcessingMode(processingMode, true);
+  // 启动一次画齐：chips、目标行、高级列、输出方式、运行条、详情列。
+  updateMediaWorkspace();
   updateOutputModeControls();
-  var sp = document.getElementById('settingsPanel');
-  if (sp) sp.style.display = 'block';
-  ['autoCompress','qualitySlider','outputFormat','compressionBackend','compressionEffort','smartMode','convertToWebp','systemOutputFormat','systemImageSize','preserveMetadata','outputSuffix'].forEach(function(id){
-    var el = document.getElementById(id);
-    if (el) el.addEventListener('change', function(){ saveCompressSettings(); updateSettingsSummary(); });
-  });
-  if (outputSuffixInput) outputSuffixInput.addEventListener('input', function(){ saveCompressSettings(); updateSettingsSummary(); });
-  document.querySelectorAll('input[name="outputMode"]').forEach(function(r){
-    r.addEventListener('change', function(){ saveCompressSettings(); updateSettingsSummary(); });
-  });
-  updateSettingsSummary();
-  updateQualitySlider();
+  updateQueueSummary();
+  renderDetailPane();
+
   invoke('get_app_version').then(v => {
     window.appVersion = v;
     initUpdatePanel();

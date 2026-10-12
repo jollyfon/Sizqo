@@ -5,7 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Mutex;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use base64::Engine as _;
 use serde::Serialize;
@@ -490,6 +490,8 @@ fn build_result(file_path: &str, engine_result: &EngineResult) -> CompressResult
     } else {
         0.0
     };
+    let (source_width, source_height) = source_dimensions(&path);
+    let (output_width, output_height) = output_dimensions(&engine_result.compressed);
     CompressResult {
         success: engine_result.success,
         file: file_path.into(),
@@ -504,6 +506,42 @@ fn build_result(file_path: &str, engine_result: &EngineResult) -> CompressResult
         output_path: None,
         backup_path: None,
         output_mode: None,
+        source_width,
+        source_height,
+        output_width,
+        output_height,
+        // 墙钟耗时由调用方测量：引擎只对字节负责，不知道自己被调度器排到了什么时候。
+        elapsed_ms: None,
+        target_bytes: engine_result.target_bytes,
+        // 结论只来自引擎：没跑过搜索就是 None，不能在这里替它编一个 true。
+        target_met: engine_result.target_met,
+        warnings: if engine_result.warnings.is_empty() {
+            None
+        } else {
+            Some(engine_result.warnings.clone())
+        },
+    }
+}
+
+/// 用户原图的像素尺寸：只读文件头，不解码整幅像素。
+/// 认不出的容器（HEIC/AVIF/JXL，image crate 当前没开对应解码器）返回 None ——
+/// 详情页据此显示"未知"而不是编一个 0×0。
+fn source_dimensions(path: &Path) -> (Option<u32>, Option<u32>) {
+    match image::image_dimensions(path) {
+        Ok((width, height)) => (Some(width), Some(height)),
+        Err(_) => (None, None),
+    }
+}
+
+/// 输出字节流的像素尺寸（同样只读头部）。
+fn output_dimensions(bytes: &[u8]) -> (Option<u32>, Option<u32>) {
+    let Ok(reader) = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format()
+    else {
+        return (None, None);
+    };
+    match reader.into_dimensions() {
+        Ok((width, height)) => (Some(width), Some(height)),
+        Err(_) => (None, None),
     }
 }
 
@@ -527,7 +565,7 @@ fn normalized_output_suffix(value: Option<&str>) -> String {
     suffix.chars().take(64).collect()
 }
 
-fn available_system_conversion_path(file_path: &Path, out_type: &str) -> PathBuf {
+fn available_converted_path(file_path: &Path, out_type: &str) -> PathBuf {
     let preferred = file_path.with_extension(out_type);
     if !preferred.exists() {
         return preferred;
@@ -637,8 +675,12 @@ fn write_output_file(
                 || (current_ext == "jpg" && result.out_type == "jpeg")
                 || (current_ext == "heif" && result.out_type == "heic")
                 || (current_ext == "heic" && result.out_type == "heic");
-            if options.processing_mode == "system" && is_format_conversion && !same_format {
-                Some(available_system_conversion_path(file_path, &result.out_type))
+            // 字节属于哪种格式，文件就得叫什么扩展名：覆盖模式把 WebP 字节塞进
+            // photo.png（或把 AVIF 塞进 photo.heic）会得到一个两边都打不开的文件。
+            // 引擎在"没压小就保留原图"时交回的是源格式（engine::kept_original），
+            // 所以这里判到的格式差异只可能是真转换，不是失败的回落。
+            if !same_format {
+                Some(available_converted_path(file_path, &result.out_type))
             } else {
                 Some(file_path.to_path_buf())
             }
@@ -947,20 +989,40 @@ pub(crate) async fn compress_batch_with_session(
         let results_c = results_arc.clone();
         let processed_c = processed_arc.clone();
         let session_id_c = session_id_arc.clone();
+        let scheduler_c = control.clone();
         let fp = file_path.clone();
 
         let fp_for_track = fp.clone();
         handles.push((tokio::spawn(async move {
             let _permit = permit; // 持有信号量直到压缩完成
 
-            let path = PathBuf::from(&fp);
-            let engine_result = if use_smart {
-                engine::compress_smart(&path, &opts).await
-            } else {
-                engine::compress_image(&path, &opts).await
+            // 预算阶梯的取消判据：读的是与闸门**同一份**信号（整批 stopping / 这个文件在
+            // cancel_queue 里），但用 contains 而不是 take_cancelled —— 记账「这个文件不再
+            // 参与本轮」只发生在闸门那一处，正在跑的文件按 state-machine 的约定做完自己。
+            // 已经开跑的那一次编码绝不中途 kill：那会留下半成品临时文件和悬空事务。
+            let cancel_probe = {
+                let app_for_probe = app_c.clone();
+                let fp_for_probe = fp.clone();
+                move || scheduler_c.is_stopping()
+                    || app_for_probe
+                        .state::<AppState>()
+                        .cancel_queue
+                        .lock()
+                        .unwrap()
+                        .contains(&fp_for_probe)
             };
 
+            let path = PathBuf::from(&fp);
+            let started = Instant::now();
+            let engine_result = if use_smart {
+                engine::compress_smart_with_cancel(&path, &opts, cancel_probe).await
+            } else {
+                engine::compress_image_with_cancel(&path, &opts, cancel_probe).await
+            };
+            let elapsed_ms = started.elapsed().as_millis() as u64;
+
             let mut result = build_result(&fp, &engine_result);
+            result.elapsed_ms = Some(elapsed_ms);
             if let Err(error) = write_output_file(
                 &mut result,
                 &path,
@@ -1061,6 +1123,7 @@ fn failed_result(file: String) -> CompressResult {
         output_path: None,
         backup_path: None,
         output_mode: None,
+        ..Default::default()
     }
 }
 
@@ -1207,8 +1270,10 @@ pub async fn compress_single(
     options: CompressOptions,
 ) -> Result<CompressResult, String> {
     let path = PathBuf::from(&file_path);
+    let started = Instant::now();
     let engine_result = engine::compress_image(&path, &options).await;
     let mut result = build_result(&file_path, &engine_result);
+    result.elapsed_ms = Some(started.elapsed().as_millis() as u64);
 
     // Write compressed output to a persistent temp file for display
     if engine_result.success {
@@ -2341,6 +2406,7 @@ mod tests {
             out_type: "png".into(),
             algorithm: "test".into(),
             error: None,
+            ..Default::default()
         };
         let mut result = build_result(&input.to_string_lossy(), &engine_result);
         let options = CompressOptions {
@@ -2380,6 +2446,7 @@ mod tests {
             out_type: "png".into(),
             algorithm: "test".into(),
             error: None,
+            ..Default::default()
         };
 
         for (mode, suffix) in [("suffix", "_c"), ("folder", "_f")] {
@@ -2474,6 +2541,7 @@ mod tests {
             out_type: "png".into(),
             algorithm: "test".into(),
             error: None,
+            ..Default::default()
         };
         let mut result = build_result(&input.to_string_lossy(), &engine_result);
         let options = CompressOptions {
@@ -2508,25 +2576,169 @@ mod tests {
         );
     }
 
+    /// 覆盖模式下的真格式转换：字节是 WebP，文件就得叫 `.webp`。
+    /// 把 WebP 塞进 photo.png 会得到一个扩展名骗人的文件，两边都打不开。
     #[test]
-    fn system_conversion_never_overwrites_an_existing_target() {
+    fn replace_mode_renames_the_file_to_the_format_its_bytes_actually_are() {
+        let temp = tempfile::tempdir().unwrap();
+        let history = history_in(temp.path());
+        let transactions = transactions_in(temp.path());
+        let input = temp.path().join("photo.png");
+        fs::write(&input, b"true-png-bytes").unwrap();
+
+        let engine_result = EngineResult {
+            success: true,
+            compressed: b"webp-bytes".to_vec(),
+            out_type: "webp".into(),
+            algorithm: "cwebp".into(),
+            error: None,
+            ..Default::default()
+        };
+        let mut result = build_result(&input.to_string_lossy(), &engine_result);
+        let options = CompressOptions {
+            output_mode: "replace".into(),
+            output_format: "webp".into(),
+            ..Default::default()
+        };
+        write_output_file(
+            &mut result,
+            &input,
+            &engine_result.compressed,
+            &[input.to_string_lossy().into_owned()],
+            &options,
+            &history,
+            &transactions,
+            3,
+        )
+        .expect("格式转换的输出必须落盘");
+
+        let converted = temp.path().join("photo.webp");
+        assert_eq!(
+            result.output_path.as_deref(),
+            Some(converted.to_string_lossy().as_ref())
+        );
+        assert_eq!(fs::read(&converted).unwrap(), b"webp-bytes");
+        assert!(!input.exists(), "换了扩展名就不许再留一份假 .png 在原位");
+        // 原图不会凭空消失：备份先落盘，历史写成后凭证才销账。
+        let entry = history.list().into_iter().next().unwrap();
+        assert!(PathBuf::from(entry.backup_path.unwrap()).exists());
+        assert!(!transactions.has_pending());
+    }
+
+    /// 目标扩展名已经被占用（规则 8）：另起一个不冲突的名字，绝不覆盖邻居。
+    #[test]
+    fn a_format_conversion_never_clobbers_an_existing_file_with_the_target_name() {
+        let temp = tempfile::tempdir().unwrap();
+        let input = temp.path().join("photo.png");
+        fs::write(&input, b"true-png-bytes").unwrap();
+        let neighbour = temp.path().join("photo.webp");
+        fs::write(&neighbour, b"someone-elses-file").unwrap();
+
+        let engine_result = EngineResult {
+            success: true,
+            compressed: b"webp-bytes".to_vec(),
+            out_type: "webp".into(),
+            algorithm: "cwebp".into(),
+            error: None,
+            ..Default::default()
+        };
+        let mut result = build_result(&input.to_string_lossy(), &engine_result);
+        let options = CompressOptions {
+            output_mode: "replace".into(),
+            output_format: "webp".into(),
+            ..Default::default()
+        };
+        write_output_file(
+            &mut result,
+            &input,
+            &engine_result.compressed,
+            &[input.to_string_lossy().into_owned()],
+            &options,
+            &history_in(temp.path()),
+            &transactions_in(temp.path()),
+            3,
+        )
+        .expect("格式转换的输出必须落盘");
+
+        assert_eq!(
+            result.output_path.as_deref(),
+            Some(
+                temp.path()
+                    .join("photo_converted.webp")
+                    .to_string_lossy()
+                    .as_ref()
+            )
+        );
+        assert_eq!(
+            fs::read(&neighbour).unwrap(),
+            b"someone-elses-file",
+            "邻居文件一个字节都不许动"
+        );
+    }
+
+    /// jpeg/jpg 是同一种格式：拼法不同不算格式转换，
+    /// 否则每个 .jpeg 都会在原图旁边长出一个 .jpg。
+    #[test]
+    fn jpg_bytes_overwrite_a_jpeg_source_in_place() {
+        let temp = tempfile::tempdir().unwrap();
+        let input = temp.path().join("photo.jpeg");
+        fs::write(&input, b"true-original-bytes").unwrap();
+
+        let engine_result = EngineResult {
+            success: true,
+            compressed: b"small".to_vec(),
+            out_type: "jpg".into(),
+            algorithm: "mozjpeg".into(),
+            error: None,
+            ..Default::default()
+        };
+        let mut result = build_result(&input.to_string_lossy(), &engine_result);
+        let options = CompressOptions {
+            output_mode: "replace".into(),
+            ..Default::default()
+        };
+        write_output_file(
+            &mut result,
+            &input,
+            &engine_result.compressed,
+            &[input.to_string_lossy().into_owned()],
+            &options,
+            &history_in(temp.path()),
+            &transactions_in(temp.path()),
+            3,
+        )
+        .expect("同格式覆盖必须落盘");
+
+        assert_eq!(
+            result.output_path.as_deref(),
+            Some(input.to_string_lossy().as_ref())
+        );
+        assert_eq!(fs::read(&input).unwrap(), b"small");
+        assert!(
+            !temp.path().join("photo.jpg").exists(),
+            "同格式不许另起一个扩展名"
+        );
+    }
+
+    #[test]
+    fn a_converted_target_never_overwrites_an_existing_file() {
         let temp = tempfile::tempdir().unwrap();
         let input = temp.path().join("photo.png");
         fs::write(&input, b"png").unwrap();
         assert_eq!(
-            available_system_conversion_path(&input, "jpg"),
+            available_converted_path(&input, "jpg"),
             temp.path().join("photo.jpg")
         );
 
         fs::write(temp.path().join("photo.jpg"), b"existing").unwrap();
         assert_eq!(
-            available_system_conversion_path(&input, "jpg"),
+            available_converted_path(&input, "jpg"),
             temp.path().join("photo_converted.jpg")
         );
 
         fs::write(temp.path().join("photo_converted.jpg"), b"existing").unwrap();
         assert_eq!(
-            available_system_conversion_path(&input, "jpg"),
+            available_converted_path(&input, "jpg"),
             temp.path().join("photo_converted_2.jpg")
         );
     }
@@ -2543,6 +2755,7 @@ mod tests {
             out_type: "png".into(),
             algorithm: "test".into(),
             error: None,
+            ..Default::default()
         };
         let mut result = build_result(&input.to_string_lossy(), &engine_result);
         let options = CompressOptions {

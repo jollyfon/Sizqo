@@ -6,7 +6,10 @@
 //   3. 前端只发信号，闸门由后端把着；取消 / 停止绝不许顺手解除暂停。
 const assert = require('node:assert/strict');
 const vm = require('node:vm');
-const { source, slice, stateMachine, installStateMachine, installQueueCore } = require('./app-slices.cjs');
+const {
+  source, slice, stateMachine, installStateMachine, installQueueCore, installQueueRowPainter,
+  installActionText, installRunBar, installMediaWorkspaceStubs,
+} = require('./app-slices.cjs');
 const stateMachineSlice = stateMachine();
 
 // 与 app.js 里 iconMarkup 同构：断言才能直接找 #icon-pause / #icon-stop。
@@ -22,6 +25,8 @@ const elements = {
   queueSummary: el(), compressBtnText: el(), compressBtnFill: el(), startCompressBtn: el(),
   pauseCompressBtn: el(), pauseBtnText: el(), stopCompressBtn: el(), stopBtnText: el(),
   restoreAllBtn: el(),
+  // 运行条：阶段与暂停/停止的痕迹要在这条栏上看得见，所以断言直接读它。
+  runPhase: el(), runGain: el(), runCpu: el(), runProgressFill: el(), railRunningDot: el(),
 };
 // 20 张图，全部等待处理。
 const queuePaths = Array.from({ length: 20 }, (_, i) => `/img-${i}.png`);
@@ -33,7 +38,6 @@ const context = vm.createContext({
   files: queuePaths.slice(),
   queueItems: new Map(queuePaths.map(p => [p, { path: p, state: 'pending', result: null, originalSize: null }])),
   fileRows: {},
-  processingMode: 'advanced',
   document: { getElementById: id => elements[id] || null },
   applyQueueView() {}, showToast(message) { calls.push(['toast', message]); },
   iconMarkup: icon,
@@ -46,7 +50,9 @@ const context = vm.createContext({
 installQueueCore(context);
 installStateMachine(context);
 vm.runInContext(slice('function updateQueueSummary(', 'function toggleQueueSortDirection('), context);
-vm.runInContext(slice('function processingActionText(', 'function setProcessingMode('), context);
+installActionText(context);
+installRunBar(context);
+installQueueRowPainter(context);
 
 const flush = async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); };
 const last = name => [...calls].reverse().find(call => call[0] === name);
@@ -79,7 +85,7 @@ const countOf = needle => source.split(needle).length - 1;
   // 等待中的行：暂停时不写「等待中」、不带 spinner，而是暂停图标 + 已暂停。
   // 行的画法现在按 queueItems 的 state 走，所以这里给"等待中的那张"配一行。
   const rowStub = () => {
-    const parts = { '.queue-item-icon': { innerHTML: '' }, '.queue-item-status': { textContent: '' } };
+    const parts = { '.media-state-icon': { innerHTML: '' }, '.media-meta': { textContent: '' } };
     return {
       parts,
       classList: { contains: () => false },
@@ -89,9 +95,9 @@ const countOf = needle => source.split(needle).length - 1;
   const waitingRow = rowStub();
   context.fileRows['/img-1.png'] = waitingRow;
   context.renderPauseControls();
-  assert.equal(waitingRow.parts['.queue-item-status'].textContent, '已暂停');
-  assert.match(waitingRow.parts['.queue-item-icon'].innerHTML, /#icon-pause/);
-  assert.ok(!waitingRow.parts['.queue-item-icon'].innerHTML.includes('progress-file-spinner'),
+  assert.equal(waitingRow.parts['.media-meta'].textContent, '已暂停');
+  assert.match(waitingRow.parts['.media-state-icon'].innerHTML, /#icon-pause/);
+  assert.ok(!waitingRow.parts['.media-state-icon'].innerHTML.includes('progress-file-spinner'),
     '暂停时排队的行不许还转着圈');
   assert.equal(context.taskStatusMarkup('paused').text, '已暂停');
   assert.match(context.taskStatusMarkup('running').icon, /progress-file-spinner/,
@@ -218,7 +224,8 @@ const countOf = needle => source.split(needle).length - 1;
 
   // ── 取消整批仍然是"只叫醒、不开门" ──────────────────────────
   assert.equal(countOf("invoke('cancel_file'"), 1, '只有队列里单个文件才逐个取消');
-  assert.equal(countOf("invoke('cancel_batch'"), 2, '清空全部与清除结果各发一次批量取消');
+  assert.equal(countOf("invoke('cancel_batch'"), 1,
+    '整批取消只有一个出处：清空队列。结果页已经并进同一条队列，不再有第二处批量取消');
 
   // 清空全部：整批一次取消，且不许顺手把暂停闸门打开。
   const batchCalls = [];
@@ -231,10 +238,10 @@ const countOf = needle => source.split(needle).length - 1;
     executionSession: { id: 'session-1', queueRevision: 0, targetPaths: paths.slice(), phase: 'running' },
     confirm: () => true,
     document: { getElementById: () => null },
-    settingsPanel: { style: {} }, resultsPanel: { style: {} },
     updateQueueSummary() {}, emitCompareResultsChanged() {},
     invoke: async (command, args) => { batchCalls.push([command, args]); return null; },
   });
+  installMediaWorkspaceStubs(batch);
   installStateMachine(batch);
   batch.setCompressionState('paused', true);
   vm.runInContext(slice('function clearAllFiles(', '// ─── Compression'), batch);

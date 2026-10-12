@@ -45,13 +45,14 @@ Compare the source and compressed image pixel by pixel in a separate window by d
 
 ### Images
 
-- **Two modes:** Advanced Compression lets you set quality, effort, and output format (keep the source format or convert to JPEG, PNG, WebP, or AVIF). On macOS, System Conversion follows Finder's image conversion workflow, with JPEG, PNG, and HEIF output, size presets, and metadata retention.
-- **Smart compression:** chooses an algorithm and settings for each image. You can also select an engine and effort manually.
+- **Intent first:** you choose the outcome — "visually identical", "balanced", "as small as possible", "web size", "under a file-size budget", "convert with macOS", or "custom" — and the app compiles it into quality, output format, dimension cap and candidate search. Each chip says in one line what it will do to your file, including what it will *not* keep: re-encoded pixels drop EXIF/GPS, and only System Conversion preserves metadata.
+- **A number only where a number is needed:** "web size" asks for the longest edge, "under a budget" asks for the target file size, and the summary line above the chips shows exactly what will be sent.
+- **Nothing is hidden behind the chips:** the advanced panel still edits quality, output format, System Conversion format/size and metadata retention — the intents write those same fields.
 - **Visual comparison:** drag the split line to compare the source and compressed image side by side.
 
 ### Videos (Direct edition)
 
-- **Presets:** Fast (hardware H.264/HEVC), Balanced, High quality (x264/x265 CRF), Target size (two-pass), Compatibility-first, and fully custom encoder settings.
+- **Intents:** "smaller everywhere", "high quality, keep tracks", "target size", "1080p web", and "custom", plus the full raw panel (preset import, container, encoder, speed, CRF / bitrate / two-pass, resolution, frame rate, audio policy).
 - **Encoders:** hardware H.264/HEVC through VideoToolbox when available, plus software x264, x265, SVT-AV1 (AV1), and VP9, with automatic fallback shown explicitly.
 - **Output containers:** MP4, MOV, MKV, WebM, and TS. Audio can be copied or converted to AAC, Opus, MP3, or FLAC (lossless, MKV). Tracks, subtitles, chapters, and attachments are preserved or explicitly dropped — never silently lost.
 - **Honest results:** an output is "compressed" only when it is valid, playable, and smaller than the source. HDR / Dolby Vision, 10-bit, alpha, and interlaced inputs are refused with an explanation instead of silently tone-mapped.
@@ -75,7 +76,7 @@ Compare the source and compressed image pixel by pixel in a separate window by d
 
 ### Interface
 
-- 🌗 Light, dark, or system appearance; compression settings are collapsed by default.
+- 🌗 Light, dark, or system appearance. The workspace keeps the intent chips, output mode and run bar always visible; raw parameters live in a collapsed advanced panel.
 - 🌐 English and Simplified Chinese. The interface follows the system language by default, and you can choose a language in Settings.
 
 ## Download and install
@@ -88,11 +89,11 @@ GitHub Releases provides macOS Apple Silicon and Intel builds (plus a Universal 
 
 ### Quick start
 
-1. Open Sizqo and drop images, videos, or folders into the window, or choose **Choose Media** / **Choose Folder**.
-2. Expand **Compression settings** (images) or **Video settings** to adjust encoder, quality, container, and output location. Otherwise, start with the defaults.
-3. Select **Start compression**. You can pause, stop, or add files at any time.
-4. Select **Compare** on a result row to inspect source and output. Video rows offer playback of both files, frame comparison, the diagnostics log, and restore.
-5. In Replace mode, restore the original at any time. The **History** page also provides earlier records.
+1. Open Sizqo and drop images, videos, or folders into the window, or choose **Choose Media** / **Choose Folder**. The left rail switches between this run, **History**, and **Settings**.
+2. Pick an intent chip. The summary line next to it shows exactly what will be sent (quality, format, cap, output location); open the advanced panel only if you want to edit those parameters yourself.
+3. Select **Start compression** in the run bar at the bottom. You can pause, stop, or add files at any time.
+4. Select a file in the list: its detail pane opens on the right with the before/after comparison and the actions available for that result. Video details offer playback of both files, frame comparison, the diagnostics log, and restore.
+5. In Replace mode, restore the original at any time. The **History** view in the left rail also provides earlier records.
 
 ### macOS says “damaged and can't be opened”
 
@@ -132,7 +133,7 @@ The exact, observed status of every track is recorded in [docs/validation.md](do
 - The App Store edition does not package or launch third-party executables. It uses in-process Rust libraries for all image formats and accesses user files through security-scoped bookmarks.
 - Image engine capabilities (PNG, JPEG, WebP, AVIF, GIF) are shared across the tracks; the App Store edition uses in-process crates for them.
 - Each track has its own history, backup, and settings root. Original backups are never stored in temporary folders.
-- Engineering rules are documented in [AGENTS.md](AGENTS.md); the video task protocol lives in [core/media-task-protocol.md](core/media-task-protocol.md).
+- Engineering rules are documented in [AGENTS.md](AGENTS.md); the intent → parameter model lives in [core/intent-model.md](core/intent-model.md) and the video task protocol in [core/media-task-protocol.md](core/media-task-protocol.md).
 
 ### Compression engine overview
 
@@ -184,6 +185,7 @@ bash scripts/test_swift_history.sh                            # Swift history, b
 Sizqo/
 ├── frontend/                       # Frontend (plain HTML/CSS/JS; no build step)
 │   ├── index.html / app.js          # Main window (media workbench)
+│   ├── intents.js                   # Intent → parameter compiler (DOM-free)
 │   ├── video-settings.js            # Video settings panel
 │   └── compare.html / compare_window.js  # Separate comparison window
 ├── src-tauri/                       # Rust backend shared by both Tauri tracks

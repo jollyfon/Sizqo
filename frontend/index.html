@@ -18,18 +18,19 @@
       document.documentElement.dataset.themeMode = mode;
       document.documentElement.dataset.theme = resolved;
       document.documentElement.style.colorScheme = resolved;
-      document.documentElement.style.backgroundColor = resolved === 'dark' ? '#1c1c1e' : '#ececed';
+      document.documentElement.style.backgroundColor = resolved === 'dark' ? '#16171a' : '#f2f2f4';
     })();
   </script>
   <script src="i18n.js"></script>
   <style>
-    html, body { background: #ececed; }
-    html[data-theme="dark"], html[data-theme="dark"] body { background: #1c1c1e; }
+    html, body { background: #f2f2f4; }
+    html[data-theme="dark"], html[data-theme="dark"] body { background: #16171a; }
   </style>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <!-- 统一线条图标系统：24 网格 / 20 可视区 / 1.8 描边 / 圆头圆角；实心点缀自带 fill。 -->
+  <!-- 统一线条图标系统：24 网格 / 20 可视区 / 1.8 描边 / 圆头圆角；实心点缀自带 fill。
+       这里每一个 symbol 都必须被引用，tests/icon-sprite.cjs 双向核对，Swift 图标库由它再生成。 -->
   <svg class="icon-library" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <symbol id="icon-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.9"/><circle cx="12" cy="7.9" r="1.15" fill="currentColor" stroke="none"/><path d="M12 11.4v5"/></symbol>
@@ -43,7 +44,6 @@
       <symbol id="icon-compress" viewBox="0 0 24 24"><path d="M2.8 2.8l7.6 7.6 M5.8 9.2 10.4 10.4 9.2 5.8"/><path d="M21.2 21.2l-7.6-7.6 M18.2 14.8 13.6 13.6 14.8 18.2"/></symbol>
       <symbol id="icon-recompress" viewBox="0 0 24 24"><path d="M20.6 12a8.6 8.6 0 1 1-8.6-8.6 8.6 8.6 0 0 1 6.1 2.5l2.5 2.5"/><path d="M20.6 3.4v5h-5"/></symbol>
       <symbol id="icon-sliders" viewBox="0 0 24 24"><path d="M3.2 7.5h4.3 M12.7 7.5h8.1 M3.2 16.5h8.3 M16.7 16.5h4.1"/><circle cx="10" cy="7.5" r="2.8"/><circle cx="14" cy="16.5" r="2.8"/></symbol>
-      <symbol id="icon-results" viewBox="0 0 24 24"><path d="M3.4 20.6h17.2"/><path d="M7.4 20.6V12.4 M12 20.6V6.4 M16.6 20.6V15.4"/></symbol>
       <symbol id="icon-trash" viewBox="0 0 24 24"><path d="M4 6.5h16"/><path d="M9 6.5V4.6c0-.6.5-1.1 1.1-1.1h3.8c.6 0 1.1.5 1.1 1.1v1.9"/><path d="M6.2 6.5l.9 13.3c.05.7.6 1.2 1.3 1.2h7.2c.7 0 1.25-.5 1.3-1.2l.9-13.3"/><path d="M10.2 10.5v7 M13.8 10.5v7"/></symbol>
       <symbol id="icon-restore" viewBox="0 0 24 24"><path d="M8.6 4.6 4.6 8.6l4 4"/><path d="M4.6 8.6h10.9a5.4 5.4 0 0 1 0 10.8H9.4"/></symbol>
       <symbol id="icon-export" viewBox="0 0 24 24"><path d="M4.6 13.4v4.6a2.4 2.4 0 0 0 2.4 2.4h10a2.4 2.4 0 0 0 2.4-2.4v-4.6"/><path d="M12 15.4V3.4 M8.2 7.2 12 3.4l3.8 3.8"/></symbol>
@@ -64,424 +64,512 @@
       <symbol id="icon-stop" viewBox="0 0 24 24"><rect x="6.6" y="6.6" width="10.8" height="10.8" rx="2.2" fill="currentColor" stroke="none"/></symbol>
       <symbol id="icon-history" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.9"/><path d="M12 6.8v5.4l3.7 2.2"/></symbol>
       <symbol id="icon-settings" viewBox="0 0 24 24"><path d="M9.66,1.87 14.34,1.87 15.45,6.02 15.45,6.02 19.61,4.91 21.95,8.96 18.90,12.00 18.90,12.00 21.95,15.04 19.61,19.09 15.45,17.98 15.45,17.98 14.34,22.13 9.66,22.13 8.55,17.98 8.55,17.98 4.39,19.09 2.05,15.04 5.10,12.00 5.10,12.00 2.05,8.96 4.39,4.91 8.55,6.02 8.55,6.02Z"/><circle cx="12" cy="12" r="3.4"/></symbol>
-      <symbol id="icon-back" viewBox="0 0 24 24"><path d="M19.6 12H4.4 M10.2 6.2 4.4 12l5.8 5.8"/></symbol>
+      <symbol id="icon-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3.1 9.2h17.8 M3.1 14.8h17.8"/><path d="M12 3a15.4 15.4 0 0 1 0 18 M12 3a15.4 15.4 0 0 0 0 18"/></symbol>
+      <symbol id="icon-target-size" viewBox="0 0 24 24"><rect x="3.4" y="3.4" width="17.2" height="17.2" rx="2.8"/><circle cx="12" cy="12" r="4.2"/><circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none"/></symbol>
+      <symbol id="icon-image" viewBox="0 0 24 24"><rect x="2.9" y="4.9" width="18.2" height="14.2" rx="2.7"/><circle cx="8.3" cy="10.2" r="1.7"/><path d="M4.3 17.4l4.4-4.3 3 2.9 3.3-3.7 4.5 4.9"/></symbol>
+      <symbol id="icon-video" viewBox="0 0 24 24"><rect x="2.6" y="5.9" width="12.6" height="12.2" rx="2.6"/><path d="M15.2 10.6l5.2-3.2a.9.9 0 0 1 1.4.8v7.6a.9.9 0 0 1-1.4.8l-5.2-3.2Z"/></symbol>
     </defs>
   </svg>
- <!-- Title Bar -->
- <div class="titlebar">
-   <div class="titlebar-traffic-spacer"></div>
-   <div class="titlebar-drag" data-tauri-drag-region>
-     <img src="octo-icon-light.png" data-light-src="octo-icon-light.png" data-dark-src="octo-icon-dark.png" class="titlebar-icon-img" alt="Sizqo">
-     <span class="titlebar-text">Sizqo</span>
-   </div>
-    <div class="titlebar-progress" id="titlebarProgress" style="width:0%"></div>
-  <div class="titlebar-actions">
-     <button class="tb-btn" id="historyViewBtn" onclick="showView('history')" title="历史记录">
-       <svg class="symbol-icon"><use href="#icon-history"/></svg>
-     </button>
-     <button class="tb-btn" id="settingsViewBtn" onclick="showView('settings')" title="设置">
-       <svg class="symbol-icon"><use href="#icon-settings"/></svg>
-     </button>
-   </div>
- </div>
 
-  <nav class="media-navigation" aria-label="媒体类型">
-    <button type="button" class="media-nav-button active" data-media-view="all" onclick="setMediaFilter('all')">全部</button>
-    <button type="button" class="media-nav-button" data-media-view="image" onclick="setMediaFilter('image')">图片</button>
-    <button type="button" class="media-nav-button" data-media-view="video" onclick="setMediaFilter('video')">视频</button>
-    <button type="button" class="media-nav-button" data-media-view="history" onclick="showView('history')">历史</button>
-  </nav>
+  <div class="app-shell">
+    <header class="titlebar">
+      <div class="titlebar-traffic-spacer"></div>
+      <div class="titlebar-drag" data-tauri-drag-region>
+        <img src="octo-icon-light.png" data-light-src="octo-icon-light.png" data-dark-src="octo-icon-dark.png" class="titlebar-icon-img" alt="Sizqo">
+        <span class="titlebar-text">Sizqo</span>
+        <span class="titlebar-context" id="titlebarContext">媒体工作台</span>
+      </div>
+      <div class="titlebar-progress" id="titlebarProgress" style="width:0%"></div>
+    </header>
 
-  <!-- Main Layout -->
-  <div class="container" id="mainView">
-    <!-- Drop Zone -->
-    <div class="dropzone" id="dropzone" onclick="selectFiles()">
-      <div class="dropzone-content" id="dropzoneContent">
-        <div class="dropzone-icon">
-          <span class="dropzone-icon-disc"><svg class="symbol-icon symbol-icon-hero"><use href="#icon-add-images"/></svg></span>
-        </div>
-        <h2 data-i18n-zh="拖拽图片、视频或文件夹到此处">Drop images, videos, or folders here</h2>
-        <p data-i18n-zh="自动识别媒体类型 · 文件夹递归扫描 · 大文件分析不阻塞界面">Media types detected automatically · folders scanned recursively</p>
-        <div class="dropzone-buttons">
-          <button class="btn btn-primary" onclick="event.stopPropagation(); selectFiles()">
-            <svg class="symbol-icon"><use href="#icon-add-images"/></svg>
-            <span data-i18n-zh="选择媒体文件">Choose Media</span>
-          </button>
-          <button class="btn btn-secondary" onclick="event.stopPropagation(); selectFolder()">
-            <svg class="symbol-icon"><use href="#icon-folder-add"/></svg>
-            <span data-i18n-zh="选择文件夹">Choose Folder</span>
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Queue Panel (unified: shows files waiting + compressing + done) -->
-    <div class="queue-panel" id="queuePanel" style="display:none;">
-      <div class="queue-header">
-        <h3>
-          <svg class="symbol-icon"><use href="#icon-queue"/></svg>
-          媒体队列
-        </h3>
-        <div class="queue-header-right">
-          <span class="queue-summary" id="queueSummary">0 个文件</span>
-          <span class="progress-summary" id="progressSummary" style="display:none;"></span>
-          <button class="btn btn-small btn-ghost" onclick="clearAllFiles()" title="清空列表">
-            <svg class="symbol-icon symbol-icon-small"><use href="#icon-trash"/></svg>
-            清除全部
-          </button>
-        </div>
-      </div>
-      <div class="queue-stats" id="queueStats" style="display:none;">
-        <div class="stat-item">
-          <span class="stat-label">原始大小</span>
-          <span class="stat-value stat-original" id="statOriginal">0B</span>
-        </div>
-        <div class="stat-item">
-          <span class="stat-label">压缩后</span>
-          <span class="stat-value stat-compressed" id="statCompressed">0B</span>
-        </div>
-        <div class="stat-item">
-          <span class="stat-label">已节省</span>
-          <span class="stat-value stat-savings" id="totalSavings">0B</span>
-        </div>
-        <div class="stat-item">
-          <span class="stat-label">压缩率</span>
-          <span class="stat-value stat-rate" id="totalRate">0%</span>
-        </div>
-      </div>
-      <div class="queue-view-controls">
-        <label class="queue-failure-filter"><input type="checkbox" id="queueFailedOnly" onchange="applyQueueView()">只显示失败</label>
-        <div class="queue-sort-controls">
-          <label for="queueSortKey">排序</label>
-          <select id="queueSortKey" onchange="applyQueueView()">
-            <option value="import">导入顺序</option>
-            <option value="name">名称</option>
-            <option value="original">原始大小</option>
-            <option value="compressed">压缩后大小</option>
-            <option value="ratio">压缩比</option>
-            <option value="status">状态</option>
-          </select>
-          <button class="btn btn-small btn-ghost" id="queueSortDirection" type="button" onclick="toggleQueueSortDirection()" aria-label="当前升序，点击切换降序"><svg class="symbol-icon symbol-icon-small" aria-hidden="true"><use href="#icon-sort-asc"/></svg> 升序</button>
-        </div>
-      </div>
-      <div class="file-queue-list" id="fileQueueList"></div>
-      <div class="queue-filter-empty" id="queueFilterEmpty" hidden>没有失败的文件</div>
-      <div class="queue-actions">
-        <button class="btn btn-secondary" onclick="selectFiles()">
-          <svg class="symbol-icon"><use href="#icon-add-images"/></svg>
-          追加文件
-        </button>
-        <button class="btn btn-secondary" id="restoreAllBtn" onclick="restoreAllOriginals()" style="display:none;">
-          <svg class="symbol-icon"><use href="#icon-restore"/></svg>
-          恢复全部原图
-        </button>
-        <button class="btn btn-primary btn-full compress-progress-btn" id="startCompressBtn" onclick="handlePrimaryAction()">
-          <div class="compress-btn-fill" id="compressBtnFill"></div>
-          <span class="compress-btn-text" id="compressBtnText">
-            <svg class="symbol-icon"><use href="#icon-compress"/></svg>
-            开始压缩
-          </span>
-        </button>
-        <button class="btn btn-small btn-secondary" id="pauseCompressBtn" type="button"
-          onclick="toggleCompressionPause()" style="display:none;">
-          <span class="pause-btn-text" id="pauseBtnText">
-            <svg class="symbol-icon symbol-icon-small"><use href="#icon-pause"/></svg>
-            暂停
-          </span>
-        </button>
-        <button class="btn btn-small btn-secondary" id="stopCompressBtn" type="button"
-          onclick="stopCompression()" style="display:none;"
-          title="停止：正在处理的文件会先完成，其余文件保留在队列中">
-          <span class="pause-btn-text" id="stopBtnText">
-            <svg class="symbol-icon symbol-icon-small"><use href="#icon-stop"/></svg>
-            停止
-          </span>
-        </button>
-      </div>
-    </div>
-
-    <div class="settings-panel video-settings-panel collapsed" id="videoSettingsPanel" style="display:none;">
-      <div class="settings-header" onclick="toggleVideoSettings()">
-        <h3><svg class="symbol-icon"><use href="#icon-sliders"/></svg>视频设置<span class="settings-summary" id="videoSettingsSummary"></span></h3>
-        <svg class="symbol-icon settings-chevron"><use href="#icon-chevron-down"/></svg>
-      </div>
-      <div class="settings-body">
-        <div class="video-capability-note" id="videoCapabilityNote" role="status"></div>
-        <div class="video-capability-note" id="videoValidationNote" role="status"></div>
-        <div class="settings-row">
-          <label for="videoPreset">预设</label>
-          <div class="select-wrapper"><select id="videoPreset" class="settings-select"></select></div>
-        </div>
-        <div class="settings-row">
-          <label for="videoContainer">输出容器</label>
-          <div class="select-wrapper"><select id="videoContainer" class="settings-select">
-            <option value="mp4">MP4</option><option value="mov">MOV</option><option value="mkv">MKV</option><option value="webm">WebM</option><option value="ts">TS</option>
-          </select></div>
-        </div>
-        <details class="video-advanced" id="videoAdvancedOptions">
-          <summary>高级选项</summary>
-          <div class="video-advanced-body">
-            <div class="settings-row"><label for="videoEncoder">视频编码器</label><div class="select-wrapper"><select id="videoEncoder" class="settings-select"></select></div></div>
-            <div class="settings-row"><label for="videoSpeed">编码速度</label><div class="select-wrapper"><select id="videoSpeed" class="settings-select"><option value="ultrafast">ultrafast</option><option value="veryfast">veryfast</option><option value="medium" selected>medium</option><option value="slow">slow</option></select></div></div>
-            <div class="settings-row"><label for="videoMode">控制模式</label><div class="select-wrapper"><select id="videoMode" class="settings-select">
-              <option value="crf">恒定质量（CRF）</option><option value="abr">目标码率（ABR）</option>
-              <option value="twoPass">两遍码率</option><option value="targetSize">目标体积</option>
-            </select></div></div>
-            <div class="settings-row video-mode-field" data-video-modes="crf"><label for="videoCrf">质量值</label><div class="video-number-control"><input id="videoCrf" type="number" min="0" max="63" value="28"><span class="settings-hint" id="videoCrfHint">按所选编码器解释；数值不能跨编码器直接比较</span></div></div>
-            <div class="settings-row video-mode-field" data-video-modes="abr,twoPass"><label for="videoBitrate">目标码率</label><div class="video-number-control"><input id="videoBitrate" type="number" min="64" max="100000" step="100" value="4000"><span class="settings-hint">kbps · 估算不保证最终体积</span></div></div>
-            <div class="settings-row video-mode-field" data-video-modes="targetSize"><label for="videoTargetMiB">目标体积</label><div class="video-number-control"><input id="videoTargetMiB" type="number" min="1" max="1000000" step="1" value="100"><span class="settings-hint">MiB · 音频与容器开销会影响结果</span></div></div>
-            <div class="settings-row"><label for="videoResolution">分辨率</label><div class="select-wrapper"><select id="videoResolution" class="settings-select">
-              <option value="0">保持源分辨率</option><option value="2160">最高 4K</option><option value="1440">最高 1440p</option>
-              <option value="1080">最高 1080p</option><option value="720">最高 720p</option><option value="custom">自定义最长边</option>
-            </select></div><input id="videoResolutionCustom" class="video-inline-number" type="number" min="144" max="16384" value="1080" aria-label="自定义最长边像素" hidden></div>
-            <div class="settings-row"><label for="videoFrameRate">帧率</label><div class="select-wrapper"><select id="videoFrameRate" class="settings-select">
-              <option value="">保持源时间戳 / VFR</option><option value="24">24 fps</option><option value="25">25 fps</option><option value="30">30 fps</option><option value="60">60 fps</option>
-            </select></div></div>
-            <div class="settings-row"><label for="videoAudioPolicy">音频</label><div class="select-wrapper"><select id="videoAudioPolicy" class="settings-select">
-              <option value="copy">兼容音轨优先复制</option><option value="aac">转换为 AAC 160 kbps</option><option value="opus">转换为 Opus 160 kbps</option><option value="mp3">转换为 MP3 160 kbps</option><option value="flac">转换为 FLAC 无损</option><option value="none">移除音频</option>
-            </select></div></div>
-            <div class="settings-row"><label for="videoSubtitlePolicy">字幕</label><div class="select-wrapper"><select id="videoSubtitlePolicy" class="settings-select"><option value="copy">保留兼容字幕</option><option value="drop">移除字幕</option></select></div></div>
-            <div class="settings-row"><label for="videoMetadataPolicy">元数据</label><div class="select-wrapper"><select id="videoMetadataPolicy" class="settings-select"><option value="preserve">保留</option><option value="stripPrivate">移除隐私位置数据</option><option value="strip">全部移除</option></select></div></div>
-            <div class="settings-row"><label for="videoOutputMode">输出方式</label><div class="select-wrapper"><select id="videoOutputMode" class="settings-select"><option value="suffix">同目录添加后缀</option><option value="directory">指定目录</option><option value="replace">安全覆盖原文件</option></select></div></div>
-            <div class="settings-row video-output-field" id="videoSuffixRow"><label for="videoOutputSuffix">文件名后缀</label><input id="videoOutputSuffix" class="settings-text-input" value="_compressed" maxlength="64"></div>
-            <div class="settings-row video-output-field" id="videoDirectoryRow" hidden><label>输出目录</label><div class="dir-picker"><span id="videoOutputDirDisplay" class="dir-display">未选择</span><button class="btn btn-small" type="button" onclick="selectVideoOutputDir()">浏览</button></div></div>
-            <div class="settings-row"><label for="videoThreads">编码线程</label><div class="video-number-control"><input id="videoThreads" type="number" min="0" max="256" value="0"><span class="settings-hint">0 = 自动</span></div></div>
-            <div class="settings-row"><label>结果策略</label><div class="toggle-wrapper"><label class="toggle"><input type="checkbox" id="videoAllowLarger"><span class="toggle-slider"></span></label><span class="toggle-label">允许保留更大的输出</span></div></div>
-          </div>
-        </details>
-        <p class="video-estimate-note">预计体积是估算；实际结果取决于素材内容、编码器和轨道开销。</p>
-      </div>
-    </div>
-
-    <!-- Settings Panel：默认折叠（用户导入后先看到一行标题 + 当前设置摘要，
-         想改再点开）。展开状态只由 toggleSettings() 响应点击切换，不许有代码自动展开。 -->
-    <div class="settings-panel collapsed" id="settingsPanel" style="display:none;">
-      <div class="settings-header" onclick="toggleSettings()">
-        <h3>
-          <svg class="symbol-icon"><use href="#icon-sliders"/></svg>
-          压缩设置
-          <span class="settings-summary" id="settingsSummary"></span>
-        </h3>
-        <svg class="symbol-icon settings-chevron"><use href="#icon-chevron-down"/></svg>
-      </div>
-      <div class="settings-body">
-        <div class="processing-mode-switch settings-row" id="processingModeSwitch" role="group" aria-label="处理方式">
-          <label>处理方式</label>
-          <div class="processing-mode-control">
-            <span class="processing-mode-label" data-mode="system">系统转换</span>
-            <button type="button" class="processing-mode-info" onclick="event.stopPropagation(); openSystemConversionInfo()"
-              title="系统转换说明" aria-label="系统转换说明">
-              <svg class="symbol-icon symbol-icon-small"><use href="#icon-info"/></svg>
-            </button>
-            <button type="button" class="processing-mode-toggle active" id="processingModeToggle"
-              role="switch" aria-checked="true" aria-label="切换处理方式，当前为高级压缩"
-              onclick="toggleProcessingMode()">
-              <span class="processing-mode-slider"></span>
-            </button>
-            <span class="processing-mode-label active" data-mode="advanced">高级压缩</span>
-          </div>
-        </div>
-        <div class="settings-row">
-          <label>自动处理</label>
-          <div class="toggle-wrapper">
-            <label class="toggle">
-              <input type="checkbox" id="autoCompress">
-              <span class="toggle-slider"></span>
-            </label>
-            <span class="toggle-label" id="autoCompressLabel">拖入或选择后自动压缩</span>
-          </div>
-        </div>
-        <div class="settings-row" data-processing-mode="system">
-          <label>格式</label>
-          <div class="select-wrapper">
-            <select id="systemOutputFormat" class="settings-select">
-              <option value="original">原格式</option>
-              <option value="jpg">JPEG</option>
-              <option value="png">PNG</option>
-              <option value="heif">HEIF</option>
-            </select>
-          </div>
-        </div>
-        <div class="settings-row" data-processing-mode="system">
-          <label>图像大小</label>
-          <div class="select-wrapper">
-            <select id="systemImageSize" class="settings-select">
-              <option value="actual">实际大小</option>
-              <option value="large">大（最长边 1280 px）</option>
-              <option value="medium">中（最长边 640 px）</option>
-              <option value="small">小（最长边 320 px）</option>
-            </select>
-          </div>
-        </div>
-        <div class="settings-row" data-processing-mode="system">
-          <label>元数据</label>
-          <div class="toggle-wrapper">
-            <label class="toggle">
-              <input type="checkbox" id="preserveMetadata" checked>
-              <span class="toggle-slider"></span>
-            </label>
-            <span class="toggle-label">保留元数据</span>
-          </div>
-        </div>
-        <div class="settings-row" data-processing-mode="advanced">
-          <label>压缩质量</label>
-          <div class="quality-control">
-            <input type="range" id="qualitySlider" min="10" max="100" value="75">
-            <span id="qualityValue">75%</span>
-          </div>
-        </div>
-        <div class="settings-row">
-          <label>输出模式</label>
-          <div class="radio-group">
-            <label class="radio-label">
-              <input type="radio" name="outputMode" value="replace" checked>
-              <span class="radio-custom"></span>
-              覆盖原文件
-            </label>
-            <label class="radio-label">
-              <input type="radio" name="outputMode" value="suffix">
-              <span class="radio-custom"></span>
-              添加自定义后缀
-            </label>
-            <label class="radio-label">
-              <input type="radio" name="outputMode" value="folder">
-              <span class="radio-custom"></span>
-              输出到指定文件夹
-            </label>
-          </div>
-        </div>
-        <div class="settings-row" id="outputSuffixRow" style="display:none;">
-          <label for="outputSuffix">文件名后缀</label>
-          <div class="suffix-control">
-            <input type="text" id="outputSuffix" class="settings-text-input" value="_compressed"
-              placeholder="_compressed" maxlength="64" spellcheck="false" aria-describedby="outputSuffixHint">
-            <span class="settings-hint" id="outputSuffixHint">例如 _small</span>
-          </div>
-        </div>
-        <div class="settings-row" id="outputDirRow" style="display:none;">
-          <label>输出目录</label>
-          <div class="dir-picker">
-            <span id="outputDirDisplay" class="dir-display">未选择</span>
-            <button class="btn btn-small" onclick="selectOutputDir()">
-              <svg class="symbol-icon symbol-icon-small"><use href="#icon-folder-open"/></svg>
-              浏览
-            </button>
-          </div>
-        </div>
-        <div class="settings-row" data-processing-mode="advanced">
-          <label>智能模式</label>
-          <div class="toggle-wrapper">
-            <label class="toggle">
-              <input type="checkbox" id="smartMode" checked>
-              <span class="toggle-slider"></span>
-            </label>
-            <span class="toggle-label">自动选择最佳算法和参数</span>
-          </div>
-        </div>
-        <div class="settings-row" data-processing-mode="advanced">
-          <label>转换为 WebP</label>
-          <div class="toggle-wrapper">
-            <label class="toggle">
-              <input type="checkbox" id="convertToWebp">
-              <span class="toggle-slider"></span>
-            </label>
-            <span class="toggle-label">输出为 WebP 格式（更小体积）</span>
-          </div>
-        </div>
-        <div class="settings-row" data-processing-mode="advanced">
-          <label>输出格式</label>
-          <div class="select-wrapper">
-            <select id="outputFormat" class="settings-select">
-              <option value="original">保持原格式</option>
-              <option value="jpg">JPEG</option>
-              <option value="png">PNG</option>
-              <option value="webp">WebP</option>
-              <option value="avif">AVIF</option>
-            </select>
-          </div>
-        </div>
-        <div class="settings-row" data-processing-mode="advanced">
-          <label>压缩引擎</label>
-          <div class="select-wrapper">
-            <select id="compressionBackend" class="settings-select">
-              <option value="auto">自动选择（推荐）</option>
-              <option value="sharp">现代引擎（推荐）</option>
-              <option value="cli">CLI 工具</option>
-            </select>
-          </div>
-        </div>
-        <div class="settings-row" data-processing-mode="advanced">
-          <label>压缩力度</label>
-          <div class="select-wrapper">
-            <select id="compressionEffort" class="settings-select">
-              <option value="4">快速</option>
-              <option value="6" selected>平衡（推荐）</option>
-              <option value="7">高质量</option>
-              <option value="9">极致压缩（慢）</option>
-            </select>
-          </div>
-        </div>
-      </div>
-
-    </div>
-
-
-
-    <!-- Results Panel -->
-    <div class="results-panel" id="resultsPanel" style="display:none;">
-      <div class="results-header">
-        <h3>
-          <svg class="symbol-icon"><use href="#icon-results"/></svg>
-          压缩结果
-        </h3>
-        <div class="results-actions">
-          <button class="btn btn-small" onclick="clearResults()">
-            <svg class="symbol-icon symbol-icon-small"><use href="#icon-trash"/></svg>
-            清空
-          </button>
-          <button class="btn btn-small" onclick="restoreAllOriginals()">
-            <svg class="symbol-icon symbol-icon-small"><use href="#icon-restore"/></svg>
-            恢复全部原图
-          </button>
-          <button class="btn btn-small btn-primary" onclick="exportAll()">
-            <svg class="symbol-icon symbol-icon-small"><use href="#icon-export"/></svg>
-            全部导出
-          </button>
-        </div>
-      </div>
-      <div class="results-summary" id="resultsSummary">
-        <span>共压缩 <strong id="resultCount">0</strong> 个文件，节省 <strong id="resultTotalSavings">0B</strong></span>
-      </div>
-      <div class="results-list" id="resultsList"></div>
-    </div>
-  </div>
-
-  <!-- History View（独立页面：主窗口内部视图，不影响队列与压缩） -->
-  <div class="container" id="historyView" style="display:none;">
-    <div class="view-header">
-      <button class="btn btn-small btn-ghost" type="button" onclick="showView('main')" title="返回">
-        <svg class="symbol-icon symbol-icon-small"><use href="#icon-back"/></svg>
-        返回
+    <nav class="rail" aria-label="视图">
+      <button type="button" class="rail-button active" id="railWorkspace" data-rail="workspace"
+              title="本轮" aria-label="本轮" onclick="showView('main')">
+        <svg class="symbol-icon rail-icon"><use href="#icon-queue"/></svg>
+        <span class="rail-label">本轮</span>
+        <span class="rail-dot" id="railRunningDot" hidden></span>
       </button>
-      <h3 class="view-title">
-        <svg class="symbol-icon"><use href="#icon-history"/></svg>
-        历史记录
-      </h3>
-      <div class="view-header-right">
-        <span class="view-meta" id="historyMeta"></span>
-        <button class="btn btn-small btn-ghost" type="button" id="historyClearBtn" onclick="clearHistory()" title="清空历史记录">
-          <svg class="symbol-icon symbol-icon-small"><use href="#icon-trash"/></svg>
-          清空历史
-        </button>
+      <button type="button" class="rail-button" id="railHistory" data-rail="history"
+              title="历史" aria-label="历史" onclick="showView('history')">
+        <svg class="symbol-icon rail-icon"><use href="#icon-history"/></svg>
+        <span class="rail-label">历史</span>
+      </button>
+      <button type="button" class="rail-button" id="railSettings" data-rail="settings"
+              title="设置" aria-label="设置" onclick="showView('settings')">
+        <svg class="symbol-icon rail-icon"><use href="#icon-settings"/></svg>
+        <span class="rail-label">设置</span>
+      </button>
+    </nav>
+
+    <main class="stage">
+      <!-- ─── 本轮：意图条 + 清单 + 详情 ─── -->
+      <section class="pane pane-workspace" id="mainView">
+        <div class="intent-bar" id="intentBar">
+          <div class="intent-group" id="imageIntentGroup" data-intent-kind="image">
+            <div class="intent-head">
+              <svg class="symbol-icon symbol-icon-small"><use href="#icon-image"/></svg>
+              <span class="intent-title">图片目标</span>
+              <span class="intent-summary" id="imageIntentSummary"></span>
+            </div>
+            <div class="intent-chips" id="imageIntentChips" role="group" aria-label="图片意图"></div>
+            <p class="intent-note" id="imageIntentNote" role="status"></p>
+          </div>
+
+          <div class="intent-group" id="videoIntentGroup" data-intent-kind="video">
+            <div class="intent-head">
+              <svg class="symbol-icon symbol-icon-small"><use href="#icon-video"/></svg>
+              <span class="intent-title">视频目标</span>
+              <span class="intent-summary" id="videoIntentSummary"></span>
+              <button type="button" class="intent-info" id="videoPresetBtn" onclick="applyVideoPresetToIntent()"
+                title="把当前高级选项存成视频预设" hidden>
+                <svg class="symbol-icon symbol-icon-small"><use href="#icon-save"/></svg><span>存为预设</span>
+              </button>
+            </div>
+            <div class="intent-chips" id="videoIntentChips" role="group" aria-label="视频意图"></div>
+            <p class="intent-note" id="videoIntentNote" role="status"></p>
+          </div>
+
+          <!-- 目标值只在需要它的意图下出现：不做「看得见但按下去没用」的控件。 -->
+          <div class="intent-target-row" id="intentTargetRow" hidden>
+            <div class="intent-target-field" id="targetBytesField" hidden>
+              <label for="imageTargetKib">体积预算</label>
+              <div class="target-input">
+                <input id="imageTargetKib" class="settings-text-input target-number" type="number" min="10" max="2097152" step="10" value="512">
+                <span class="target-unit">KB</span>
+              </div>
+              <div class="target-presets" id="targetPresetChips"></div>
+            </div>
+            <div class="intent-target-field" id="targetDimField" hidden>
+              <label for="imageDimCap">最长边上限</label>
+              <div class="target-input">
+                <input id="imageDimCap" class="settings-text-input target-number" type="number" min="144" max="16384" step="1" value="2560">
+                <span class="target-unit">px</span>
+              </div>
+              <span class="target-hint">只缩不放</span>
+            </div>
+            <div class="intent-target-field" id="targetMiBField" hidden>
+              <label for="videoTargetMiBInput">目标体积</label>
+              <div class="target-input">
+                <input id="videoTargetMiBInput" class="settings-text-input target-number" type="number" min="1" max="1000000" step="1" value="100">
+                <span class="target-unit">MiB</span>
+              </div>
+              <span class="target-hint">估算，非保证</span>
+            </div>
+          </div>
+
+          <div class="intent-output">
+            <div class="output-mode-switch" role="radiogroup" aria-label="输出方式">
+              <label class="radio-label"><input type="radio" name="outputMode" value="replace" checked><span class="radio-custom"></span>覆盖原文件</label>
+              <label class="radio-label"><input type="radio" name="outputMode" value="suffix"><span class="radio-custom"></span>加后缀</label>
+              <label class="radio-label"><input type="radio" name="outputMode" value="folder"><span class="radio-custom"></span>输出到目录</label>
+            </div>
+            <div class="output-detail" id="outputSuffixRow">
+              <label for="outputSuffix">后缀</label>
+              <input type="text" id="outputSuffix" class="settings-text-input suffix-input" value="_compressed" placeholder="_compressed" maxlength="64" spellcheck="false" aria-describedby="outputSuffixHint">
+              <span class="settings-hint" id="outputSuffixHint">例如 _small</span>
+            </div>
+            <div class="output-detail" id="outputDirRow" hidden>
+              <span id="outputDirDisplay" class="dir-display">未选择</span>
+              <button class="btn btn-small" type="button" onclick="selectOutputDir()">
+                <svg class="symbol-icon symbol-icon-small"><use href="#icon-folder-open"/></svg>浏览
+              </button>
+            </div>
+            <div class="toggle-wrapper output-auto">
+              <label class="toggle">
+                <input type="checkbox" id="autoCompress">
+                <span class="toggle-slider"></span>
+              </label>
+              <span class="toggle-label" id="autoCompressLabel">拖入或选择后自动压缩</span>
+            </div>
+            <button class="btn btn-small btn-ghost" type="button" id="systemInfoBtn" onclick="openSystemConversionInfo()" hidden>
+              <svg class="symbol-icon symbol-icon-small"><use href="#icon-info"/></svg>系统转换说明
+            </button>
+          </div>
+
+          <details class="intent-advanced" id="intentAdvanced">
+            <summary>
+              <svg class="symbol-icon symbol-icon-small"><use href="#icon-sliders"/></svg>
+              <span>更多参数</span>
+              <svg class="symbol-icon symbol-icon-small advanced-chevron"><use href="#icon-chevron-down"/></svg>
+            </summary>
+            <div class="advanced-body">
+              <div class="advanced-col" id="imageAdvancedRows">
+                <div class="settings-row" data-intent-raw="image">
+                  <label for="qualitySlider">压缩质量</label>
+                  <div class="quality-control">
+                    <input type="range" id="qualitySlider" min="10" max="100" value="75">
+                    <span id="qualityValue">75%</span>
+                  </div>
+                </div>
+                <div class="settings-row" data-intent-raw="image">
+                  <label for="outputFormat">输出格式</label>
+                  <div class="select-wrapper">
+                    <select id="outputFormat" class="settings-select">
+                      <option value="original">保持原格式</option>
+                      <option value="jpg">JPEG</option>
+                      <option value="png">PNG</option>
+                      <option value="webp">WebP</option>
+                      <option value="avif">AVIF</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="settings-row" data-intent-raw="system" hidden>
+                  <label for="systemOutputFormat">系统转换格式</label>
+                  <div class="select-wrapper">
+                    <select id="systemOutputFormat" class="settings-select">
+                      <option value="original">原格式</option>
+                      <option value="jpg">JPEG</option>
+                      <option value="png">PNG</option>
+                      <option value="heif">HEIF</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="settings-row" data-intent-raw="system" hidden>
+                  <label for="systemImageSize">系统转换尺寸</label>
+                  <div class="select-wrapper">
+                    <select id="systemImageSize" class="settings-select">
+                      <option value="actual">实际大小</option>
+                      <option value="large">大（最长边 1280 px）</option>
+                      <option value="medium">中（最长边 640 px）</option>
+                      <option value="small">小（最长边 320 px）</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="settings-row" data-intent-raw="system" hidden>
+                  <label for="preserveMetadata">元数据</label>
+                  <div class="toggle-wrapper">
+                    <label class="toggle">
+                      <input type="checkbox" id="preserveMetadata" checked>
+                      <span class="toggle-slider"></span>
+                    </label>
+                    <span class="toggle-label">保留元数据</span>
+                  </div>
+                </div>
+              </div>
+              <div class="advanced-col" id="videoAdvancedRows">
+                <div class="settings-row">
+                  <label for="videoPreset">预设</label>
+                  <div class="select-wrapper"><select id="videoPreset" class="settings-select"></select></div>
+                </div>
+                <div class="settings-row">
+                  <label for="videoContainer">输出容器</label>
+                  <div class="select-wrapper"><select id="videoContainer" class="settings-select">
+                    <option value="mp4">MP4</option><option value="mov">MOV</option><option value="mkv">MKV</option><option value="webm">WebM</option><option value="ts">TS</option>
+                  </select></div>
+                </div>
+                <div class="settings-row"><label for="videoEncoder">视频编码器</label><div class="select-wrapper"><select id="videoEncoder" class="settings-select"></select></div></div>
+                <div class="settings-row"><label for="videoSpeed">编码速度</label><div class="select-wrapper"><select id="videoSpeed" class="settings-select"><option value="ultrafast">ultrafast</option><option value="veryfast">veryfast</option><option value="medium" selected>medium</option><option value="slow">slow</option></select></div></div>
+                <div class="settings-row"><label for="videoMode">控制模式</label><div class="select-wrapper"><select id="videoMode" class="settings-select">
+                  <option value="crf">恒定质量（CRF）</option><option value="abr">目标码率（ABR）</option>
+                  <option value="twoPass">两遍码率</option><option value="targetSize">目标体积</option>
+                </select></div></div>
+                <div class="settings-row video-mode-field" data-video-modes="crf"><label for="videoCrf">质量值</label><div class="video-number-control"><input id="videoCrf" type="number" min="0" max="63" value="28"><span class="settings-hint" id="videoCrfHint">按所选编码器解释；数值不能跨编码器直接比较</span></div></div>
+                <div class="settings-row video-mode-field" data-video-modes="abr,twoPass"><label for="videoBitrate">目标码率</label><div class="video-number-control"><input id="videoBitrate" type="number" min="64" max="100000" step="100" value="4000"><span class="settings-hint">kbps · 估算不保证最终体积</span></div></div>
+                <div class="settings-row"><label for="videoResolution">分辨率</label><div class="select-wrapper"><select id="videoResolution" class="settings-select">
+                  <option value="0">保持源分辨率</option><option value="2160">最高 4K</option><option value="1440">最高 1440p</option>
+                  <option value="1080">最高 1080p</option><option value="720">最高 720p</option><option value="custom">自定义最长边</option>
+                </select></div><input id="videoResolutionCustom" class="video-inline-number" type="number" min="144" max="16384" value="1080" aria-label="自定义最长边像素" hidden></div>
+                <div class="settings-row"><label for="videoFrameRate">帧率</label><div class="select-wrapper"><select id="videoFrameRate" class="settings-select">
+                  <option value="">保持源时间戳 / VFR</option><option value="24">24 fps</option><option value="25">25 fps</option><option value="30">30 fps</option><option value="60">60 fps</option>
+                </select></div></div>
+                <div class="settings-row"><label for="videoAudioPolicy">音频</label><div class="select-wrapper"><select id="videoAudioPolicy" class="settings-select">
+                  <option value="copy">兼容音轨优先复制</option><option value="aac">转换为 AAC 160 kbps</option><option value="opus">转换为 Opus 160 kbps</option><option value="mp3">转换为 MP3 160 kbps</option><option value="flac">转换为 FLAC 无损</option><option value="none">移除音频</option>
+                </select></div></div>
+                <div class="settings-row"><label for="videoSubtitlePolicy">字幕</label><div class="select-wrapper"><select id="videoSubtitlePolicy" class="settings-select"><option value="copy">保留兼容字幕</option><option value="drop">移除字幕</option></select></div></div>
+                <div class="settings-row"><label for="videoMetadataPolicy">元数据</label><div class="select-wrapper"><select id="videoMetadataPolicy" class="settings-select"><option value="preserve">保留</option><option value="stripPrivate">移除隐私位置数据</option><option value="strip">全部移除</option></select></div></div>
+                <div class="settings-row"><label for="videoOutputMode">输出方式</label><div class="select-wrapper"><select id="videoOutputMode" class="settings-select"><option value="suffix">同目录添加后缀</option><option value="directory">指定目录</option><option value="replace">安全覆盖原文件</option></select></div></div>
+                <div class="settings-row video-output-field" id="videoSuffixRow"><label for="videoOutputSuffix">文件名后缀</label><input id="videoOutputSuffix" class="settings-text-input" value="_compressed" maxlength="64"></div>
+                <div class="settings-row video-output-field" id="videoDirectoryRow" hidden><label>输出目录</label><div class="dir-picker"><span id="videoOutputDirDisplay" class="dir-display">未选择</span><button class="btn btn-small" type="button" onclick="selectVideoOutputDir()">浏览</button></div></div>
+                <div class="settings-row"><label for="videoThreads">编码线程</label><div class="video-number-control"><input id="videoThreads" type="number" min="0" max="256" value="0"><span class="settings-hint">0 = 自动</span></div></div>
+                <div class="settings-row"><label for="videoAllowLarger">结果策略</label><div class="toggle-wrapper"><label class="toggle"><input type="checkbox" id="videoAllowLarger"><span class="toggle-slider"></span></label><span class="toggle-label">允许保留更大的输出</span></div></div>
+                <div class="video-capability-note" id="videoCapabilityNote" role="status"></div>
+                <div class="video-capability-note" id="videoValidationNote" role="status"></div>
+              </div>
+            </div>
+          </details>
+        </div>
+
+        <div class="work-split">
+          <div class="list-column" id="listColumn">
+            <div class="list-header" id="listHeader">
+              <div class="filter-chips" id="mediaFilterChips" role="group" aria-label="媒体类型">
+                <button type="button" class="chip active" data-media-filter="all" onclick="setMediaFilter('all')">全部</button>
+                <button type="button" class="chip" data-media-filter="image" onclick="setMediaFilter('image')">
+                  <svg class="symbol-icon chip-icon"><use href="#icon-image"/></svg>图片
+                </button>
+                <button type="button" class="chip" data-media-filter="video" onclick="setMediaFilter('video')">
+                  <svg class="symbol-icon chip-icon"><use href="#icon-video"/></svg>视频
+                </button>
+              </div>
+              <span class="list-count" id="queueSummary">0 个文件</span>
+              <div class="list-tools">
+                <label class="queue-failure-filter"><input type="checkbox" id="queueFailedOnly" onchange="applyQueueView()">只显示失败</label>
+                <div class="queue-sort-controls">
+                  <label for="queueSortKey">排序</label>
+                  <select id="queueSortKey" onchange="applyQueueView()">
+                    <option value="import">导入顺序</option>
+                    <option value="name">名称</option>
+                    <option value="original">原始大小</option>
+                    <option value="compressed">压缩后大小</option>
+                    <option value="ratio">压缩比</option>
+                    <option value="status">状态</option>
+                  </select>
+                  <button class="btn btn-small btn-ghost" id="queueSortDirection" type="button" onclick="toggleQueueSortDirection()" aria-label="当前升序，点击切换降序"><svg class="symbol-icon symbol-icon-small" aria-hidden="true"><use href="#icon-sort-asc"/></svg> 升序</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="list-scroll">
+              <!-- 空队列时这里就是拖放区：不再额外占一整屏。 -->
+              <div class="dropzone" id="dropzone">
+                <div class="dropzone-content" id="dropzoneContent">
+                  <div class="dropzone-icon">
+                    <span class="dropzone-icon-disc"><svg class="symbol-icon symbol-icon-hero"><use href="#icon-add-images"/></svg></span>
+                  </div>
+                  <h2 data-i18n-zh="拖拽图片、视频或文件夹到此处">Drop images, videos, or folders here</h2>
+                  <p data-i18n-zh="自动识别媒体类型 · 文件夹递归扫描 · 大文件分析不阻塞界面">Media types detected automatically · folders scanned recursively</p>
+                  <div class="dropzone-buttons">
+                    <button class="btn btn-primary" onclick="selectFiles()">
+                      <svg class="symbol-icon"><use href="#icon-add-images"/></svg>
+                      <span data-i18n-zh="选择媒体文件">Choose Media</span>
+                    </button>
+                    <button class="btn btn-secondary" onclick="selectFolder()">
+                      <svg class="symbol-icon"><use href="#icon-folder-add"/></svg>
+                      <span data-i18n-zh="选择文件夹">Choose Folder</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div class="media-list" id="fileQueueList"></div>
+              <div class="list-filter-empty" id="queueFilterEmpty" hidden>没有失败的文件</div>
+            </div>
+          </div>
+
+          <aside class="detail-column" id="detailColumn" aria-live="polite">
+            <div class="detail-inner" id="detailBody"></div>
+          </aside>
+        </div>
+      </section>
+
+      <!-- ─── 历史 ─── -->
+      <section class="pane" id="historyView" hidden>
+        <div class="work-split">
+          <div class="list-column">
+            <div class="list-header">
+              <div class="filter-chips" id="historyFilterChips" role="group" aria-label="历史媒体类型">
+                <button type="button" class="chip active" data-history-filter="all" onclick="setHistoryFilter('all')">全部</button>
+                <button type="button" class="chip" data-history-filter="image" onclick="setHistoryFilter('image')">
+                  <svg class="symbol-icon chip-icon"><use href="#icon-image"/></svg>图片
+                </button>
+                <button type="button" class="chip" data-history-filter="video" onclick="setHistoryFilter('video')">
+                  <svg class="symbol-icon chip-icon"><use href="#icon-video"/></svg>视频
+                </button>
+              </div>
+              <span class="list-count" id="historyMeta"></span>
+              <div class="list-tools">
+                <button class="btn btn-small btn-ghost" type="button" id="historyClearBtn" onclick="clearHistory()" title="清空历史记录">
+                  <svg class="symbol-icon symbol-icon-small"><use href="#icon-trash"/></svg>清空历史
+                </button>
+              </div>
+            </div>
+            <div class="list-scroll">
+              <div class="media-list history-list" id="historyList"></div>
+              <div class="list-empty-inline" id="historyEmpty" hidden>还没有压缩记录</div>
+            </div>
+          </div>
+          <aside class="detail-column" id="historyDetailColumn" aria-live="polite">
+            <div class="detail-inner" id="historyDetailBody"></div>
+          </aside>
+        </div>
+      </section>
+
+      <!-- ─── 设置 ─── -->
+      <section class="pane pane-settings" id="settingsView" hidden>
+        <div class="settings-scroll">
+          <div class="settings-card">
+            <h3 class="card-title">语言</h3>
+            <div class="settings-row">
+              <label for="languagePreference">界面语言</label>
+              <div class="select-wrapper">
+                <select id="languagePreference" class="settings-select">
+                  <option value="auto">自动（跟随系统）</option>
+                  <option value="zh">简体中文</option>
+                  <option value="en">英语</option>
+                </select>
+              </div>
+            </div>
+            <p class="settings-copy">默认跟随系统语言；更改后界面会重新加载。</p>
+          </div>
+
+          <div class="settings-card">
+            <h3 class="card-title">外观</h3>
+            <div class="settings-row">
+              <label>主题</label>
+              <div class="theme-choice" role="group" aria-label="主题">
+                <button type="button" class="theme-choice-btn" id="themeChoiceAuto"
+                  onclick="setThemePreference('auto')" title="自动（跟随系统）" aria-pressed="true">
+                  <svg class="symbol-icon"><use href="#icon-theme-auto"/></svg>
+                </button>
+                <button type="button" class="theme-choice-btn" id="themeChoiceLight"
+                  onclick="setThemePreference('light')" title="亮色模式" aria-pressed="false">
+                  <svg class="symbol-icon"><use href="#icon-sun"/></svg>
+                </button>
+                <button type="button" class="theme-choice-btn" id="themeChoiceDark"
+                  onclick="setThemePreference('dark')" title="暗黑模式" aria-pressed="false">
+                  <svg class="symbol-icon"><use href="#icon-moon"/></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-card">
+            <h3 class="card-title">原图与备份</h3>
+            <div class="settings-row">
+              <label for="retentionDays">原图备份保留时间</label>
+              <div class="select-wrapper">
+                <select id="retentionDays" class="settings-select">
+                  <option value="0">不保留</option>
+                  <option value="1">1 天</option>
+                  <option value="3">3 天</option>
+                  <option value="7">7 天</option>
+                  <option value="14">14 天</option>
+                  <option value="30">30 天</option>
+                </select>
+              </div>
+            </div>
+            <p class="settings-copy">
+              覆盖原文件时，Sizqo 会先保存一份原图备份。<br>
+              <span id="retentionCopy">本次运行的压缩记录和原图备份都会在关闭应用时清理；期间可以随时恢复原图。</span>
+            </p>
+          </div>
+
+          <div class="settings-card">
+            <h3 class="card-title">性能</h3>
+            <div class="settings-row cpu-device-row">
+              <label>当前设备</label>
+              <div class="cpu-device-col">
+                <span class="cpu-device" id="cpuDevice">检测中…</span>
+                <span class="cpu-cores" id="cpuCoreInfo"></span>
+              </div>
+            </div>
+            <div class="settings-row">
+              <label for="cpuLimitSlider">CPU 使用上限</label>
+              <div class="cpu-control-col">
+                <div class="quality-control cpu-control">
+                  <input type="range" id="cpuLimitSlider" min="1" max="8" step="1" value="3"
+                    aria-label="Sizqo 最多使用的 CPU 并行份数">
+                  <span class="cpu-limit-value" id="cpuLimitValue">自动</span>
+                  <button class="btn btn-small cpu-auto-btn active" type="button" id="cpuLimitAuto"
+                    title="不指定，按机器性能自动决定">自动</button>
+                </div>
+                <div class="cpu-scale"><span>低占用</span><span>高性能</span></div>
+              </div>
+            </div>
+            <p class="settings-copy">
+              限制 Sizqo 同时使用的 CPU 并行能力。<br>
+              较低的数值会降低压缩速度，但可为其他应用保留更多性能。
+              <span id="cpuSchedulingNote" style="display:none;"><br>系统会自动在性能核与能效核之间调度任务。</span>
+            </p>
+          </div>
+
+          <div class="settings-card">
+            <h3 class="card-title">更新</h3>
+            <div class="settings-row">
+              <label>当前版本</label>
+              <div class="update-col">
+                <span class="update-version" id="updateVersion">—</span>
+                <span class="update-status" id="updateStatus"></span>
+              </div>
+            </div>
+            <div class="settings-row" id="updateCheckRow" style="display:none;">
+              <label>在线更新</label>
+              <div class="update-col">
+                <button class="btn btn-small" type="button" id="updateCheckBtn" onclick="manualCheckUpdate()">检查更新</button>
+                <a class="update-link" href="https://github.com/misswell/octo-shrink/releases/latest"
+                  target="_blank" rel="noopener noreferrer" title="打开 GitHub Release 页面">Release 页面</a>
+              </div>
+            </div>
+            <div class="settings-row" id="updateDownloadRow" style="display:none;">
+              <label>下载进度</label>
+              <div class="update-col">
+                <div class="update-progress"><div class="update-progress-fill" id="updateProgressFill"></div></div>
+                <span class="update-progress-text" id="updateProgressText">下载中 0%</span>
+                <button class="btn btn-small" type="button" onclick="cancelUpdateDownload()">取消</button>
+              </div>
+            </div>
+            <p class="settings-copy" id="updateDirectNote" style="display:none;">
+              检查更新只访问 GitHub Releases；发现新版本要点「立即更新」才会下载，图片始终不离开这台机器。
+            </p>
+            <p class="settings-copy" id="updateAppStoreNote" style="display:none;">
+              本版本由 Mac App Store 分发，更新由 App Store 统一管理，应用内不再检查版本。
+            </p>
+          </div>
+
+          <div class="settings-card">
+            <h3 class="card-title">关于</h3>
+            <div class="settings-row">
+              <label>当前版本</label>
+              <div class="update-col">
+                <span class="update-version" id="aboutVersion">—</span>
+              </div>
+            </div>
+            <div class="settings-row">
+              <label>还原默认设置</label>
+              <div class="update-col">
+                <button class="btn btn-small" type="button" onclick="resetSettings()">还原默认设置</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- ─── 常驻运行条：阶段与进度只从后端状态派生 ─── -->
+    <footer class="run-bar" id="runBar">
+      <div class="run-progress" id="runProgress">
+        <div class="run-progress-fill" id="runProgressFill" style="width:0%"></div>
       </div>
-    </div>
-    <div class="history-media-filter" role="group" aria-label="历史媒体类型">
-      <button type="button" class="media-nav-button active" data-history-filter="all" onclick="setHistoryFilter('all')">全部</button>
-      <button type="button" class="media-nav-button" data-history-filter="image" onclick="setHistoryFilter('image')">图片</button>
-      <button type="button" class="media-nav-button" data-history-filter="video" onclick="setHistoryFilter('video')">视频</button>
-    </div>
-    <div class="history-list" id="historyList"></div>
-    <div class="history-empty" id="historyEmpty" hidden>还没有压缩记录</div>
+      <div class="run-inner">
+        <div class="run-stats">
+          <span class="run-phase" id="runPhase"></span>
+          <span class="run-gain" id="runGain"></span>
+          <span class="run-cpu" id="runCpu"></span>
+        </div>
+        <div class="run-actions">
+          <button class="btn btn-small btn-ghost" type="button" id="addMoreBtn" onclick="selectFiles()" title="追加文件">
+            <svg class="symbol-icon symbol-icon-small"><use href="#icon-add-images"/></svg>追加
+          </button>
+          <button class="btn btn-small btn-ghost" type="button" id="clearQueueBtn" onclick="clearAllFiles()" title="清空队列">
+            <svg class="symbol-icon symbol-icon-small"><use href="#icon-trash"/></svg>清除全部
+          </button>
+          <button class="btn btn-small btn-secondary" type="button" id="restoreAllBtn" onclick="restoreAllOriginals()" hidden>
+            <svg class="symbol-icon symbol-icon-small"><use href="#icon-restore"/></svg>恢复全部原图
+          </button>
+          <button class="btn btn-small btn-secondary" type="button" id="exportAllBtn" onclick="exportAll()" hidden>
+            <svg class="symbol-icon symbol-icon-small"><use href="#icon-export"/></svg>全部导出
+          </button>
+          <button class="btn btn-primary run-primary" type="button" id="startCompressBtn" onclick="handlePrimaryAction()">
+            <div class="compress-btn-fill" id="compressBtnFill" aria-hidden="true"></div>
+            <span class="run-primary-text" id="compressBtnText">
+              <svg class="symbol-icon"><use href="#icon-compress"/></svg>开始压缩
+            </span>
+          </button>
+          <button class="btn btn-small btn-secondary" type="button" id="pauseCompressBtn"
+            onclick="toggleCompressionPause()" hidden>
+            <span class="pause-btn-text" id="pauseBtnText">
+              <svg class="symbol-icon symbol-icon-small"><use href="#icon-pause"/></svg>暂停
+            </span>
+          </button>
+          <button class="btn btn-small btn-secondary" type="button" id="stopCompressBtn"
+            onclick="stopCompression()" hidden
+            title="停止：正在处理的文件会先完成，其余文件保留在队列中">
+            <span class="pause-btn-text" id="stopBtnText">
+              <svg class="symbol-icon symbol-icon-small"><use href="#icon-stop"/></svg>停止
+            </span>
+          </button>
+        </div>
+      </div>
+    </footer>
   </div>
 
   <div class="video-compare-backdrop" id="videoCompareBackdrop" style="display:none;" onclick="closeVideoCompare()"></div>
@@ -498,175 +586,6 @@
     <div class="video-compare-footer"><span id="videoCompareMetadata"></span><label>缩放 <input id="videoCompareZoom" type="range" min="50" max="250" value="100"><span id="videoCompareZoomLabel">100%</span></label></div>
   </section>
 
-  <!-- Settings View（App 级设置，与压缩参数面板分开） -->
-  <div class="container" id="settingsView" style="display:none;">
-    <div class="view-header">
-      <button class="btn btn-small btn-ghost" type="button" onclick="showView('main')" title="返回">
-        <svg class="symbol-icon symbol-icon-small"><use href="#icon-back"/></svg>
-        返回
-      </button>
-      <h3 class="view-title">
-        <svg class="symbol-icon"><use href="#icon-settings"/></svg>
-        设置
-      </h3>
-    </div>
-    <div class="settings-panel">
-      <div class="settings-header view-section-header">
-        <h3>语言</h3>
-      </div>
-      <div class="settings-body">
-        <div class="settings-row">
-          <label for="languagePreference">界面语言</label>
-          <div class="select-wrapper">
-            <select id="languagePreference" class="settings-select">
-              <option value="auto">自动（跟随系统）</option>
-              <option value="zh">简体中文</option>
-              <option value="en">英语</option>
-            </select>
-          </div>
-        </div>
-        <p class="settings-copy">默认跟随系统语言；更改后界面会重新加载。</p>
-      </div>
-    </div>
-    <div class="settings-panel">
-      <div class="settings-header view-section-header">
-        <h3>外观</h3>
-      </div>
-      <div class="settings-body">
-        <div class="settings-row">
-          <label>主题</label>
-          <div class="theme-choice" role="group" aria-label="主题">
-            <button type="button" class="theme-choice-btn" id="themeChoiceAuto"
-              onclick="setThemePreference('auto')" title="自动（跟随系统）" aria-pressed="true">
-              <svg class="symbol-icon"><use href="#icon-theme-auto"/></svg>
-            </button>
-            <button type="button" class="theme-choice-btn" id="themeChoiceLight"
-              onclick="setThemePreference('light')" title="亮色模式" aria-pressed="false">
-              <svg class="symbol-icon"><use href="#icon-sun"/></svg>
-            </button>
-            <button type="button" class="theme-choice-btn" id="themeChoiceDark"
-              onclick="setThemePreference('dark')" title="暗黑模式" aria-pressed="false">
-              <svg class="symbol-icon"><use href="#icon-moon"/></svg>
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-    <div class="settings-panel">
-      <div class="settings-header view-section-header">
-        <h3>历史记录与原图</h3>
-      </div>
-      <div class="settings-body">
-        <div class="settings-row">
-          <label for="retentionDays">原图备份保留时间</label>
-          <div class="select-wrapper">
-            <select id="retentionDays" class="settings-select">
-              <option value="0">不保留</option>
-              <option value="1">1 天</option>
-              <option value="3">3 天</option>
-              <option value="7">7 天</option>
-              <option value="14">14 天</option>
-              <option value="30">30 天</option>
-            </select>
-          </div>
-        </div>
-        <p class="settings-copy">
-          覆盖原文件时，Sizqo 会先保存一份原图备份。<br>
-          <span id="retentionCopy">本次运行的压缩记录和原图备份都会在关闭应用时清理；期间可以随时恢复原图。</span>
-        </p>
-      </div>
-    </div>
-    <div class="settings-panel">
-      <div class="settings-header view-section-header">
-        <h3>性能</h3>
-      </div>
-      <div class="settings-body">
-        <div class="settings-row cpu-device-row">
-          <label>当前设备</label>
-          <div class="cpu-device-col">
-            <span class="cpu-device" id="cpuDevice">检测中…</span>
-            <span class="cpu-cores" id="cpuCoreInfo"></span>
-          </div>
-        </div>
-        <div class="settings-row">
-          <label for="cpuLimitSlider">CPU 使用上限</label>
-          <div class="cpu-control-col">
-            <div class="quality-control cpu-control">
-              <input type="range" id="cpuLimitSlider" min="1" max="8" step="1" value="3"
-                aria-label="Sizqo 最多使用的 CPU 并行份数">
-              <span class="cpu-limit-value" id="cpuLimitValue">自动</span>
-              <button class="btn btn-small cpu-auto-btn active" type="button" id="cpuLimitAuto"
-                title="不指定，按机器性能自动决定">自动</button>
-            </div>
-            <div class="cpu-scale"><span>低占用</span><span>高性能</span></div>
-          </div>
-        </div>
-        <p class="settings-copy">
-          限制 Sizqo 同时使用的 CPU 并行能力。<br>
-          较低的数值会降低压缩速度，但可为其他应用保留更多性能。
-          <span id="cpuSchedulingNote" style="display:none;"><br>系统会自动在性能核与能效核之间调度任务。</span>
-        </p>
-      </div>
-    </div>
-
-    <div class="settings-panel">
-      <div class="settings-header view-section-header">
-        <h3>更新</h3>
-      </div>
-      <div class="settings-body">
-        <div class="settings-row">
-          <label>当前版本</label>
-          <div class="update-col">
-            <span class="update-version" id="updateVersion">—</span>
-            <span class="update-status" id="updateStatus"></span>
-          </div>
-        </div>
-        <div class="settings-row" id="updateCheckRow" style="display:none;">
-          <label>在线更新</label>
-          <div class="update-col">
-            <button class="btn btn-small" type="button" id="updateCheckBtn" onclick="manualCheckUpdate()">检查更新</button>
-            <a class="update-link" href="https://github.com/misswell/octo-shrink/releases/latest"
-              target="_blank" rel="noopener noreferrer" title="打开 GitHub Release 页面">Release 页面</a>
-          </div>
-        </div>
-        <div class="settings-row" id="updateDownloadRow" style="display:none;">
-          <label>下载进度</label>
-          <div class="update-col">
-            <div class="update-progress"><div class="update-progress-fill" id="updateProgressFill"></div></div>
-            <span class="update-progress-text" id="updateProgressText">下载中 0%</span>
-            <button class="btn btn-small" type="button" onclick="cancelUpdateDownload()">取消</button>
-          </div>
-        </div>
-        <p class="settings-copy" id="updateDirectNote" style="display:none;">
-          检查更新只访问 GitHub Releases；发现新版本要点「立即更新」才会下载，图片始终不离开这台机器。
-        </p>
-        <p class="settings-copy" id="updateAppStoreNote" style="display:none;">
-          本版本由 Mac App Store 分发，更新由 App Store 统一管理，应用内不再检查版本。
-        </p>
-      </div>
-    </div>
-    <div class="settings-panel">
-      <div class="settings-header view-section-header">
-        <h3>关于</h3>
-      </div>
-      <div class="settings-body">
-        <div class="settings-row">
-          <label>当前版本</label>
-          <div class="update-col">
-            <span class="update-version" id="aboutVersion">—</span>
-          </div>
-        </div>
-        <div class="settings-row">
-          <label>还原默认设置</label>
-          <div class="update-col">
-            <button class="btn btn-small" type="button" onclick="resetSettings()">还原默认设置</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- System conversion explanation -->
   <div class="modal-backdrop" id="systemInfoBackdrop" style="display:none;" onclick="closeSystemConversionInfo()"></div>
   <div class="system-info-modal" id="systemInfoPanel" role="dialog" aria-modal="true"
     aria-labelledby="systemInfoTitle" style="display:none;">
@@ -682,6 +601,7 @@
     <div class="system-info-body">
       <p>系统转换使用 macOS 自带的图像转换能力，行为对齐 Finder 中选中图片后右键「快速操作 → 转换图像」的默认方式。</p>
       <p>可选择输出格式、图像大小和是否保留元数据；不会调用第三方压缩工具。此模式仅在 macOS 上可用。</p>
+      <p>意图条里的其他目标走高级压缩引擎，会重编码像素，EXIF 与 GPS 不会带进输出。</p>
     </div>
     <div class="system-info-footer">
       <button class="btn btn-primary" type="button" onclick="closeSystemConversionInfo()">知道了</button>
@@ -689,6 +609,7 @@
   </div>
 
   <script>window.SizqoI18n.applyToDocument(document);</script>
+  <script src="intents.js"></script>
   <script src="video-settings.js"></script>
   <script src="app.js"></script>
 </body>

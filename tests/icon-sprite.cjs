@@ -28,6 +28,14 @@ function usedIn(files) {
         if (ALL_GLYPHS.has(m[1])) names.add(m[1]);
       }
     }
+    // 数据驱动的图形（chip 上的 intentChipIcon）把 glyph 名放在一个只返回字符串的
+    // *Icon* 函数里，不在任何 iconMarkup(...) 实参上：这类引用也要算数，
+    // 否则"没人引用的 glyph"会把真在用的那个判成死的。
+    for (const fn of text.matchAll(/function (\w*Icon\w*)\([\s\S]*?\n\s*\}/g)) {
+      for (const m of fn[0].matchAll(/'([a-z0-9-]+)'/g)) {
+        if (ALL_GLYPHS.has(m[1])) names.add(m[1]);
+      }
+    }
   }
   return names;
 }

@@ -101,7 +101,6 @@ async fn test_compress_smart() {
 
     let options = engine::CompressOptions {
         quality: 75,
-        smart_mode: true,
         ..Default::default()
     };
     let result = engine::compress_smart(&png_path, &options).await;

@@ -11,8 +11,11 @@ struct SizqoApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(appState)
-                .frame(minWidth: 640, minHeight: 600)
+                // 三列布局（rail 76 + 工作列 + 详情列 340）要求更宽的窗口；
+                // 与 Tauri 线 tauri.conf.json 同一组数：1180×760，最小 940×620。
+                .frame(minWidth: 940, minHeight: 620)
         }
+        .defaultSize(width: 1180, height: 760)
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentMinSize)
         .commands {

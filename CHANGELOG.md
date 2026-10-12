@@ -3,6 +3,42 @@
 Sizqo's versioning starts at 0.1.0. This file records user-visible changes;
 engineering rules live in [AGENTS.md](AGENTS.md).
 
+## 0.2.0 — intent-first redesign (2026-10-12)
+
+- **The main window is a two-column workspace**: left rail (本轮 / 历史 / 设置),
+  a media list with thumbnails plus sort/filter, and a detail pane for the
+  selected item that holds its comparison, stats and actions. The run bar at
+  the bottom keeps progress, phase, savings, CPU, and the start/pause/stop
+  controls visible at all times.
+- **Parameters became intents.** Image goals are now 肉眼无差优先 / 均衡 /
+  尽量变小 / 网页尺寸 / 指定体积 / 系统转换 / 自定义; video goals are 通用更小 /
+  高画质·保留轨道 / 指定体积 / 1080p 网页 / 自定义. The app compiles the chosen
+  intent into quality, format, dimension cap and candidate search, shows the
+  exact settings it will send, and asks for a number only where the intent
+  needs one (longest edge, or a size budget). Raw parameters stay editable in
+  the advanced panel; the removed controls (engine picker, effort,
+  "smart mode" toggle, "convert to WebP" checkbox) were settings the product
+  itself did not act on.
+- **Honesty notes per intent**: re-encoding pixels drops EXIF/GPS and only
+  System Conversion preserves metadata; 尽量变小 keeps the source format;
+  a size budget reports the best size actually reached when it cannot hit the
+  target.
+- **Format label now matches the bytes it names.** When a conversion could not
+  produce a smaller valid file, the engine hands back the source image but used
+  to keep the *requested* format tag, so replace mode could write PNG bytes as
+  `photo.avif` (or WebP bytes into `photo.png`). Such results are now labelled
+  with the source format, and a real format change in replace mode lands on a
+  name with the extension its bytes actually have — never clobbering an
+  existing file, always after the backup and journal.
+- **Swift track aligned**: same intent table, same size-budget ladder
+  (quality 80/65/50, then 2560/1920/1280 px, max 6 encodes), same candidate
+  rules, and the same honesty notes; a Swift-only extra WebP candidate was
+  removed so all three tracks produce the same file for the same intent.
+- Frontend regression contracts: `tests/intent-model.cjs` (table ↔ compiler ↔
+  rendered chips ↔ English translations) and a rewritten
+  `tests/compression-parity.cjs` (JavaScript ↔ Rust ↔ Swift intent tables,
+  budget ladder, candidate sets, dead-field guards).
+
 ## 0.1.4 — video dropdown fix
 
 - Fixed the video settings panel's 预设 and 视频编码器 dropdowns being empty:

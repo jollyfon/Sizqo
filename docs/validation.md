@@ -5,16 +5,16 @@ tracks. Rules: a feature is "supported" only with a command and its real
 outcome recorded here; pending or blocked work is never reported as passed.
 Update this file whenever a track's capability changes.
 
-Last updated: 2026-10-11
+Last updated: 2026-10-12
 
 ## Automated checks
 
 | Check | Command | Result |
 |-------|---------|--------|
-| Rust tests, Direct features | `cargo test` (in `src-tauri`) | ✅ 85 unit + 6 integration passed |
-| Rust tests, shared in-process engines | `cargo test --features inproc-backends` | ✅ 86 unit + 6 integration passed |
-| Rust tests, App Store feature set | `cargo test --no-default-features --features inproc-backends` | ✅ 86 unit + 6 integration passed |
-| Frontend suites (queue, sessions, media import, video contract, i18n, history, CPU limit, settings, compare, update panel, parity) | `npm run test:frontend` (15 suites, incl. `tests/video-contract.cjs`, `tests/app-slices.cjs`) | ✅ all pass |
+| Rust unit tests, Direct features | `cargo test --lib` (in `src-tauri`) | ✅ 111 unit passed (2026-10-12, v0.2.0 change set) |
+| Rust unit tests, shared in-process engines | `cargo test --lib --features inproc-backends` | ✅ 112 unit passed (2026-10-12) |
+| Rust unit tests, App Store feature set | `cargo test --lib --no-default-features --features inproc-backends` | ✅ 112 unit passed (2026-10-12) |
+| Frontend suites (queue, sessions, media import, video contract, i18n, history, CPU limit, settings, compare, update panel, parity, intent model) | `npm run test:frontend` (17 suites, incl. `tests/intent-model.cjs`, `tests/app-slices.cjs`) | ✅ all pass (2026-10-12) |
 | Swift history / backup / pause / queue / settings self-checks | `bash scripts/test_swift_history.sh` | ✅ all pass |
 
 ## Track: Direct (`com.misswell.sizqo`)
@@ -73,6 +73,44 @@ Last updated: 2026-10-11
   `swift/.build/Sizqo_swift.app` (22 MB, 6 CLI tools + 28 dylibs).
 - Video: **not implemented**. No VideoProbe/VideoEncoder exists in
   `swift/Sources/SizqoSwift`; do not advertise video for this track.
+
+## Redesign: intent-first workspace (2026-10-12)
+
+Scope of this change set (all three tracks): the page shell and the operation
+model were rebuilt around **intents instead of raw parameters** — left rail
+(本轮 / 历史 / 设置), list + detail two-column workspace, persistent run bar;
+image intents 肉眼无差优先 / 均衡 / 尽量变小 / 网页尺寸 / 指定体积 / 系统转换 /
+自定义, video intents 通用更小 / 高画质·保留轨道 / 指定体积 / 1080p 网页 / 自定义.
+The intent → parameter contract lives in
+[core/intent-model.md](../core/intent-model.md); the design board in
+`docs/UI_DESIGN_MACOS26.html` is marked superseded.
+
+Also fixed in this change set: a compression that converted formats but produced
+no smaller valid file used to hand back the **source bytes tagged with the
+requested format**, so replace mode could store PNG bytes as `photo.avif` or
+write WebP bytes into `photo.png`. The engine now labels such results with the
+source format (`kept_original` in `engine.rs` / `engine_inproc.rs`, and the
+resized-branch relabel in `settle_working_file`), and replace mode names the
+output after the extension its bytes actually have
+(`available_converted_path` + the `!same_format` branch in `commands.rs`),
+never clobbering an existing file and always after backup + journal.
+
+| Gate | Command | Result |
+|------|---------|--------|
+| Rust tests, Direct | `cargo test --lib` (in `src-tauri`) | ✅ EXIT=0 — 111 passed; 0 failed; 0 ignored (2026-10-12) |
+| Rust tests, shared in-process | `cargo test --lib --features inproc-backends` | ✅ EXIT=0 — 112 passed; 0 failed |
+| Rust tests, App Store feature set | `cargo test --lib --no-default-features --features inproc-backends` | ✅ EXIT=0 — 112 passed; 0 failed |
+| New format-label regression tests actually ran | `cargo test --lib -- --exact` per name | ✅ all six ran and passed in all three gates (`commands::tests::{replace_mode_renames_the_file_to_the_format_its_bytes_actually_are, a_format_conversion_never_clobbers_an_existing_file_with_the_target_name, jpg_bytes_overwrite_a_jpeg_source_in_place, a_converted_target_never_overwrites_an_existing_file}`, `engine::intent_tests::{kept_original_labels_the_bytes_with_the_format_they_actually_are, a_settled_run_that_keeps_the_original_reports_the_source_format}`) |
+| Rust integration tests | `cargo test` (full, incl. `src-tauri/tests/`) | ⏳ pending — run as part of the release build gate below |
+| Frontend suites | `npm run test:frontend` | ✅ EXIT=0 — 17/17 suites |
+| Swift module compiles | `xcrun swiftc -typecheck -parse-as-library -target arm64-apple-macos13.0 -module-name SizqoSwift` over the 20 tracked sources (incl. new `Models/ImageIntent.swift`) | ✅ EXIT=0, zero diagnostics; full `-O` codegen also EXIT=0. Note: this track has **no `Package.swift`** — `swift build` cannot be used; the real build entry point is `scripts/build_swift.sh` |
+| Swift history / backup / pause / queue / settings self-checks | `bash scripts/test_swift_history.sh` | ✅ EXIT=0 — 32 sections, all `ok`. It compiles a **subset** (not `ImageIntent.swift`, `AppState.swift` or any `Views/`), so it does not gate the intent UI — only the full-app build does |
+| Swift `.app` rebuilt this session | `bash scripts/build_swift.sh` | ⏳ not run — that script `rm -rf`s the existing `swift/.build/Sizqo_swift.app` (stale since 2026-10-11) and needs `src-tauri/resources/bin`; the Swift track is not part of this Release |
+| GUI / signed-runtime acceptance of the new workspace | launch the built `.app` and drive 本轮/历史/设置 + image/video intents | ⏳ pending — recorded as pending, not passed |
+| Three-track build / signing / notarization / §11 video matrix | `bash scripts/build_all.sh`, `bash scripts/notarize.sh` | ⏳ pending per release run below |
+
+Compile and build operations are delegated per [AGENTS.md](../AGENTS.md); the
+rows above are filled in only with the exit codes actually observed.
 
 ## Release: v0.1.0 (2026-10-11)
 

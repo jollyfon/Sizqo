@@ -2,9 +2,12 @@ import SwiftUI
 import UniformTypeIdentifiers
 import AppKit
 
+// 两栏工作区 + 意图优先（core/intent-model.md）：
+//   rail（本轮 / 历史 / 设置） │ 工作列（意图栏 → 媒体列表 → 列表筛选） │ 详情栏
+//   运行条钉在窗口底部，有工作就可见；切换 rail 目的地不触碰队列与运行中的会话。
+
 struct ContentView: View {
     @EnvironmentObject var appState: AppState
-    @State private var isDragOver = false
     @State private var showSystemInfo = false
 
     var body: some View {
@@ -13,28 +16,34 @@ struct ContentView: View {
                 TitleBarView(showSystemInfo: $showSystemInfo)
                 HairlineDivider()
 
-                // Tauri .container：整体可滚动，padding 12/16，卡片间距 12
-                ScrollView {
-                    VStack(spacing: AppMetrics.cardSpacing) {
-                        // 历史 / 设置是主窗口内部页面：切过去不销毁队列，也不打断压缩
+                HStack(spacing: 0) {
+                    RailView()
+                    HairlineDivider()
+                    Group {
                         switch appState.page {
                         case .main:
-                            mainPage
+                            WorkspaceView(showSystemInfo: $showSystemInfo)
                         case .history:
-                            HistoryPageView()
+                            HistoryWorkspaceView()
                         case .settings:
-                            AppSettingsPageView()
+                            SettingsWorkspaceView()
                         }
                     }
-                    .padding(AppMetrics.containerPadding)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .scrollContentBackground(.hidden)
-            }
 
-            // Toast（.toast：bottom 20px，bg black 0.8，12px，radius 6）
+                // 运行条：只要队列里还有工作（含停止后剩下的 pending）就常驻。
+                if !appState.items.isEmpty || appState.isCompressing {
+                    HairlineDivider()
+                    RunBarView()
+                }
+            }
+            .background(SizqoPalette.window)
+
+            // Toast（bottom 20，黑 0.8，12px，胶囊）
             if appState.toastVisible, let msg = appState.toastMessage {
                 Text(msg)
-                    .font(.system(size: 12))
+                    .font(SizqoType.body)
                     .foregroundColor(.white)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
@@ -47,12 +56,10 @@ struct ContentView: View {
                     .transition(.opacity)
             }
 
-            // System conversion info modal
             if showSystemInfo {
                 SystemInfoModal(isPresented: $showSystemInfo)
             }
         }
-        .background(Color(nsColor: .windowBackgroundColor))
         .animation(.easeOut(duration: 0.2), value: appState.toastVisible)
         .onAppear {
             appState.detectVersion()
@@ -74,19 +81,259 @@ struct ContentView: View {
             }
         }
     }
+}
 
-    /// 主页面：空队列时是拖拽区，有文件时是队列卡片；压缩参数面板跟随其后。
-    @ViewBuilder private var mainPage: some View {
+// MARK: - Title Bar（rail 接管导航后只剩拖动区 + 版本）
+
+struct TitleBarView: View {
+    @EnvironmentObject var appState: AppState
+    @Binding var showSystemInfo: Bool
+
+    var body: some View {
+        ZStack {
+            HStack(spacing: 5) {
+                Image(nsImage: NSImage(named: "AppIcon") ?? NSImage())
+                    .resizable()
+                    .frame(width: 16, height: 16)
+                    .clipShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
+                Text("Sizqo (Swift)")
+                    .font(SizqoType.captionMedium)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+
+            HStack(spacing: 2) {
+                Color.clear.frame(width: 70, height: 1)
+                Spacer()
+                Button {
+                    showSystemInfo = true
+                } label: {
+                    SizqoIcon(name: SizqoIconName.info, size: 15)
+                }
+                .buttonStyle(TitleBarButtonStyle())
+                .help("系统转换说明")
+
+                Text("v\(appState.appVersion)")
+                    .font(SizqoType.caption)
+                    .foregroundColor(SizqoPalette.tertiaryText)
+                    .padding(.trailing, 10)
+            }
+        }
+        .frame(height: AppMetrics.titleBarHeight)
+        .background(SizqoPalette.window)
+    }
+}
+
+// MARK: - Rail（本轮 / 历史 / 设置；纯导航，切换绝不影响队列或运行中的会话）
+
+struct RailView: View {
+    @EnvironmentObject var appState: AppState
+
+    var body: some View {
+        VStack(spacing: 4) {
+            ForEach(AppPage.allCases, id: \.self) { page in
+                RailItemView(page: page)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 10)
+        .frame(width: AppMetrics.railWidth)
+        .background(SizqoPalette.window)
+    }
+}
+
+private struct RailItemView: View {
+    @EnvironmentObject var appState: AppState
+    let page: AppPage
+
+    private var icon: String {
+        switch page {
+        case .main: return SizqoIconName.queue
+        case .history: return SizqoIconName.history
+        case .settings: return SizqoIconName.settings
+        }
+    }
+
+    private var selected: Bool { appState.page == page }
+
+    var body: some View {
+        Button {
+            appState.showPage(page)
+        } label: {
+            VStack(spacing: 3) {
+                ZStack(alignment: .topTrailing) {
+                    SizqoIcon(
+                        name: icon, size: 19,
+                        color: selected ? .accentColor : .secondary
+                    )
+                    // 运行指示：会话非 idle 就点亮，与后端阶段同源，不看按钮文案。
+                    if page == .main && appState.compressionPhase != .idle {
+                        Circle()
+                            .fill(SizqoPalette.running)
+                            .frame(width: 6, height: 6)
+                            .offset(x: 3, y: -2)
+                    }
+                }
+                Text(page.railLabel)
+                    .font(SizqoType.micro)
+                    .foregroundColor(selected ? .accentColor : .secondary)
+            }
+            .frame(width: 56, height: 44)
+            .background(
+                RoundedRectangle(cornerRadius: SizqoRadius.chip, style: .continuous)
+                    .fill(selected ? SizqoPalette.accentSoft : Color.clear)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: SizqoRadius.chip, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .help(page.railLabel)
+    }
+}
+
+// MARK: - 工作列（意图栏 → 媒体列表 → 列表筛选）+ 详情栏
+
+struct WorkspaceView: View {
+    @EnvironmentObject var appState: AppState
+    @Binding var showSystemInfo: Bool
+    @State private var isDragOver = false
+
+    var body: some View {
+        HStack(spacing: 0) {
+            VStack(spacing: 0) {
+                IntentBarView(showSystemInfo: $showSystemInfo)
+                HairlineDivider()
+                mediaColumn
+                HairlineDivider()
+                listFilters
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(SizqoPalette.surface)
+
+            HairlineDivider()
+            DetailColumnView()
+                .frame(width: AppMetrics.detailColumnWidth)
+                .background(SizqoPalette.window)
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 0).fill(Color.clear)
+        )
+        .onDrop(of: [.fileURL], isTargeted: $isDragOver) { handleDrop(providers: $0) }
+        .overlay(dragOverlay)
+    }
+
+    /// 空队列 = 拖拽区；有文件 = 队列列表。追加文件入口保留在列表头部。
+    @ViewBuilder private var mediaColumn: some View {
         if appState.items.isEmpty {
             DropZoneView(isDragOver: $isDragOver)
-                .onDrop(of: [.fileURL], isTargeted: $isDragOver) { handleDrop(providers: $0) }
-            if appState.hasImported {
-                SettingsPanelView(showSystemInfo: $showSystemInfo)
-            }
+                .padding(AppMetrics.containerPadding)
         } else {
-            QueuePanelView()
-                .onDrop(of: [.fileURL], isTargeted: $isDragOver) { handleDrop(providers: $0) }
-            SettingsPanelView(showSystemInfo: $showSystemInfo)
+            VStack(spacing: 0) {
+                listHeader
+                Divider().opacity(0.4)
+                fileList
+            }
+        }
+    }
+
+    private var listHeader: some View {
+        HStack(spacing: 6) {
+            SizqoIcon(name: SizqoIconName.queue, size: 14, color: .accentColor)
+            Text("\(appState.items.count) 个文件")
+                .font(SizqoType.control)
+            Spacer()
+            Button {
+                appState.addFilesPanel()
+            } label: {
+                Label { Text("追加") } icon: { SizqoIcon(name: SizqoIconName.addImages, size: 14) }
+                    .labelIconToTextSpacing(3)
+            }
+            .buttonStyle(GhostButtonStyle())
+            .help("追加文件")
+            Button {
+                appState.addFolder()
+            } label: {
+                Label { Text("文件夹") } icon: { SizqoIcon(name: SizqoIconName.folderAdd, size: 14) }
+                    .labelIconToTextSpacing(3)
+            }
+            .buttonStyle(GhostButtonStyle())
+            .help("追加文件夹")
+            Button {
+                appState.clearQueue()
+            } label: {
+                SizqoIcon(name: SizqoIconName.trash, size: 14)
+            }
+            .buttonStyle(RowActionButtonStyle())
+            .help("清空列表")
+        }
+        .padding(.horizontal, SizqoSpacing.rowX)
+        .padding(.vertical, 7)
+    }
+
+    private var fileList: some View {
+        ScrollView {
+            LazyVStack(spacing: 2) {
+                if appState.displayItems.isEmpty && appState.onlyShowFailed {
+                    Text("没有失败的文件")
+                        .font(SizqoType.body)
+                        .foregroundColor(.secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 28)
+                } else {
+                    ForEach(appState.displayItems) { item in
+                        FileRowView(item: item)
+                    }
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+        }
+        .frame(maxHeight: .infinity)
+    }
+
+    // 列表筛选 / 排序在列表之后（契约：intent bar → media list → list filters）。
+    // 本构建线只有图片，没有视频，故不提供媒体种类筛选。
+    private var listFilters: some View {
+        HStack(spacing: 8) {
+            Toggle("只显示失败", isOn: $appState.onlyShowFailed)
+                .toggleStyle(.checkbox)
+                .font(SizqoType.caption)
+            Spacer()
+            Picker("排序", selection: $appState.sortKey) {
+                ForEach(SortKey.allCases, id: \.self) { key in
+                    Text(key.label).tag(key)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .controlSize(.small)
+            .frame(width: 116)
+            .font(SizqoType.caption)
+            Button {
+                appState.sortAscending.toggle()
+            } label: {
+                HStack(spacing: 3) {
+                    SizqoIcon(
+                        name: appState.sortAscending ? SizqoIconName.sortAsc : SizqoIconName.sortDesc,
+                        size: 13
+                    )
+                    Text(appState.sortAscending ? "升序" : "降序")
+                        .font(SizqoType.caption)
+                }
+            }
+            .buttonStyle(GhostButtonStyle())
+        }
+        .foregroundColor(.secondary)
+        .padding(.horizontal, SizqoSpacing.rowX)
+        .padding(.vertical, 6)
+        .background(SizqoPalette.surfaceSunken)
+    }
+
+    @ViewBuilder private var dragOverlay: some View {
+        if isDragOver {
+            RoundedRectangle(cornerRadius: 0)
+                .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+                .background(Color.accentColor.opacity(0.05))
+                .allowsHitTesting(false)
         }
     }
 
@@ -110,60 +357,7 @@ struct ContentView: View {
     }
 }
 
-// MARK: - Title Bar（.titlebar：42px，底部发丝线，图标+标题居中，右侧 26pt 按钮）
-
-struct TitleBarView: View {
-    @EnvironmentObject var appState: AppState
-    @Binding var showSystemInfo: Bool
-
-    var body: some View {
-        ZStack {
-            // 居中的图标 + 标题（.titlebar-drag）
-            HStack(spacing: 5) {
-                Image(nsImage: NSImage(named: "AppIcon") ?? NSImage())
-                    .resizable()
-                    .frame(width: 16, height: 16)
-                    .clipShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
-                Text("Sizqo (Swift)")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-            }
-
-            // 左侧红绿灯占位 + 右侧操作按钮（.titlebar-actions）
-            HStack(spacing: 2) {
-                Color.clear.frame(width: 70, height: 1)
-                Spacer()
-                Button {
-                    appState.showPage(appState.page == .history ? .main : .history)
-                } label: {
-                    SizqoIcon(name: SizqoIconName.history, size: 16)
-                }
-                .buttonStyle(TitleBarButtonStyle(active: appState.page == .history))
-                .help("历史记录")
-
-                Button {
-                    appState.showPage(appState.page == .settings ? .main : .settings)
-                } label: {
-                    SizqoIcon(name: SizqoIconName.settings, size: 16)
-                }
-                .buttonStyle(TitleBarButtonStyle(active: appState.page == .settings))
-                .help("设置")
-
-                Text("v\(appState.appVersion)")
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary.opacity(0.6))
-                    .padding(.trailing, 10)
-            }
-        }
-        .frame(height: AppMetrics.titleBarHeight)
-        .background(Color(nsColor: .windowBackgroundColor))
-    }
-}
-
-// MARK: - About View
-
-// MARK: - Drop Zone（.dropzone：虚线卡片，48pt 图标圆盘，18px 内边距）
+// MARK: - Drop Zone（空队列时的工作列内容）
 
 struct DropZoneView: View {
     @EnvironmentObject var appState: AppState
@@ -171,7 +365,6 @@ struct DropZoneView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // .dropzone-icon-disc：48px，radius 12，强调色 32px 字形
             ZStack {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(Color.accentColor.opacity(0.10))
@@ -185,8 +378,8 @@ struct DropZoneView: View {
                 .font(.system(size: 14, weight: .medium))
                 .padding(.bottom, 3)
 
-            Text("支持 PNG、JPG、GIF、WebP、BMP 格式 · 自动批量压缩")
-                .font(.system(size: 11))
+            Text("支持 PNG、JPG、GIF、WebP、BMP 格式 · 本构建仅处理图片")
+                .font(SizqoType.caption)
                 .foregroundColor(.secondary)
                 .padding(.bottom, 10)
 
@@ -194,35 +387,27 @@ struct DropZoneView: View {
                 Button {
                     appState.addFilesPanel()
                 } label: {
-                    Label {
-                        Text("选择文件")
-                    } icon: {
-                        SizqoIcon(name: SizqoIconName.addImages, size: 16)
-                    }
-                    .labelIconToTextSpacing(4)
+                    Label { Text("选择文件") } icon: { SizqoIcon(name: SizqoIconName.addImages, size: 16) }
+                        .labelIconToTextSpacing(4)
                 }
                 .buttonStyle(PrimaryButtonStyle())
 
                 Button {
                     appState.addFolder()
                 } label: {
-                    Label {
-                        Text("选择文件夹")
-                    } icon: {
-                        SizqoIcon(name: SizqoIconName.folderAdd, size: 16)
-                    }
-                    .labelIconToTextSpacing(4)
+                    Label { Text("选择文件夹") } icon: { SizqoIcon(name: SizqoIconName.folderAdd, size: 16) }
+                        .labelIconToTextSpacing(4)
                 }
                 .buttonStyle(SecondaryButtonStyle())
             }
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(18)
         .contentShape(Rectangle())
         .onTapGesture { appState.addFilesPanel() }
         .background(
             RoundedRectangle(cornerRadius: AppMetrics.cardRadius, style: .continuous)
-                .fill(isDragOver ? Color.accentColor.opacity(0.06) : Color(nsColor: .controlBackgroundColor))
+                .fill(isDragOver ? Color.accentColor.opacity(0.06) : SizqoPalette.surface)
         )
         .overlay(
             RoundedRectangle(cornerRadius: AppMetrics.cardRadius, style: .continuous)
@@ -231,237 +416,420 @@ struct DropZoneView: View {
                     style: StrokeStyle(lineWidth: 1, dash: [5, 4])
                 )
         )
-        .shadow(color: Color.black.opacity(0.07), radius: 1.5, y: 1)
         .animation(.easeOut(duration: 0.15), value: isDragOver)
     }
 }
 
-// MARK: - Queue Panel（.queue-panel 卡片：头部/统计/视图控制/列表/操作五段）
+// MARK: - 意图栏（image intent 表逐字实现 + 正交的 输出方式 / 自动开始 + 原始参数折叠）
 
-struct QueuePanelView: View {
+struct IntentBarView: View {
     @EnvironmentObject var appState: AppState
+    @Binding var showSystemInfo: Bool
+    @State private var maxDimDraft = ""
+    @State private var budgetDraftKiB = ""
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-            if showStats {
-                HairlineDivider()
-                statsBar
+            headerRow
+
+            if appState.options.processingMode == .advanced {
+                chips
+                intentHelp
+            } else {
+                systemParams
             }
+
             HairlineDivider()
-            viewControls
+            orthogonalRow
             HairlineDivider()
-            fileList
-            HairlineDivider()
-            actions
+            disclosure
         }
-        .cardStyle()
-        .clipShape(RoundedRectangle(cornerRadius: AppMetrics.cardRadius, style: .continuous))
+        .padding(.horizontal, SizqoSpacing.rowX)
+        .padding(.vertical, SizqoSpacing.sm)
+        .background(SizqoPalette.surface)
+        .onAppear { syncDrafts() }
+        .onChange(of: appState.intent) { _ in syncDrafts() }
+        .onChange(of: appState.options.quality) { _ in syncDrafts() }
     }
 
-    private var showStats: Bool {
-        appState.isCompressing || appState.items.contains(where: { $0.result != nil })
-    }
-
-    // .queue-header：padding 10×14
-    private var header: some View {
+    private var headerRow: some View {
         HStack(spacing: 6) {
-            SizqoIcon(name: SizqoIconName.queue, size: 15, color: .accentColor)
-            Text("文件队列")
-                .font(.system(size: 13, weight: .semibold))
+            SizqoIcon(name: SizqoIconName.compress, size: 14, color: .accentColor)
+            Text("本轮意图")
+                .font(SizqoType.control)
             Spacer()
-            Text(queueSummaryText)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(.secondary)
-                .padding(.trailing, 2)
-            Button {
-                appState.clearQueue()
-            } label: {
-                Label {
-                    Text("清除全部")
-                } icon: {
-                    SizqoIcon(name: SizqoIconName.trash, size: 15)
-                }
-                .labelIconToTextSpacing(3)
+            // 处理方式也是真控件：引擎两条路径都读它（系统转换 / 高级压缩）。
+            Picker("", selection: $appState.options.processingMode) {
+                Text("系统转换").tag(ProcessingMode.system)
+                Text("高级压缩").tag(ProcessingMode.advanced)
             }
-            .buttonStyle(GhostButtonStyle())
-            .help("清空列表")
-        }
-        .padding(.horizontal, AppMetrics.sectionHPadding)
-        .padding(.vertical, 10)
-    }
-
-    // .queue-stats：bg-secondary，padding 8×14，gap 20；值 14px/700
-    private var statsBar: some View {
-        HStack(spacing: 20) {
-            statItem("原始大小", CompressResult.formatBytesJS(appState.totalOriginal), .primary)
-            statItem("压缩后", CompressResult.formatBytesJS(appState.totalCompressed), .accentColor)
-            statItem("已节省", CompressResult.formatBytesJS(appState.totalSaved), .green)
-            statItem("压缩率", String(format: "%.1f%%", appState.totalSavingsPct), .green)
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, AppMetrics.sectionHPadding)
-        .padding(.vertical, 8)
-        .background(Color.primary.opacity(0.04))
-    }
-
-    private func statItem(_ label: String, _ value: String, _ color: Color) -> some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Text(label)
-                .font(.system(size: 10))
-                .foregroundColor(.secondary.opacity(0.7))
-                .kerning(0.3)
-            Text(value)
-                .font(.system(size: 14, weight: .bold, design: .rounded).monospacedDigit())
-                .foregroundColor(color)
-        }
-    }
-
-    // .queue-view-controls：padding 8×14，11px
-    private var viewControls: some View {
-        HStack(spacing: 8) {
-            Toggle("只显示失败", isOn: $appState.onlyShowFailed)
-                .toggleStyle(.checkbox)
-                .font(.system(size: 11))
-            Spacer()
-            Picker("排序", selection: $appState.sortKey) {
-                ForEach(SortKey.allCases, id: \.self) { key in
-                    Text(key.label).tag(key)
-                }
-            }
+            .pickerStyle(.segmented)
             .labelsHidden()
-            .pickerStyle(.menu)
-            .controlSize(.small)
-            .frame(width: 116)
-            .font(.system(size: 11))
-            Button {
-                appState.sortAscending.toggle()
-            } label: {
-                HStack(spacing: 3) {
-                    SizqoIcon(
-                        name: appState.sortAscending ? SizqoIconName.sortAsc : SizqoIconName.sortDesc,
-                        size: 13
-                    )
-                    Text(appState.sortAscending ? "升序" : "降序")
-                        .font(.system(size: 11))
-                }
-            }
-            .buttonStyle(GhostButtonStyle())
+            .controlSize(.mini)
+            .fixedSize()
+            .onChange(of: appState.options.processingMode) { _ in appState.saveSettings() }
         }
-        .foregroundColor(.secondary)
-        .padding(.horizontal, AppMetrics.sectionHPadding)
-        .padding(.vertical, 8)
+        .padding(.bottom, SizqoSpacing.sm)
     }
 
-    // .file-queue-list：padding 6×10，gap 2，max-height 260px 内部滚动
-    private var fileList: some View {
-        ScrollView {
-            LazyVStack(spacing: 2) {
-                if appState.displayItems.isEmpty && appState.onlyShowFailed {
-                    Text("没有失败的文件")
-                        .font(.system(size: 12))
+    // 意图 chips：契约 Image 表六个，一个不多一个不少；无视频意图。
+    private var chips: some View {
+        LazyVGrid(
+            columns: [GridItem(.adaptive(minimum: 88), spacing: 6)],
+            alignment: .leading, spacing: 6
+        ) {
+            ForEach(ImageIntent.allCases, id: \.self) { intent in
+                IntentChipView(
+                    title: intent == .balanced ? "均衡（默认）" : intent.label,
+                    selected: appState.intent == intent,
+                    icon: chipIcon(intent)
+                ) {
+                    appState.selectIntent(intent)
+                    syncDrafts()
+                }
+            }
+        }
+        .padding(.bottom, 6)
+    }
+
+    private func chipIcon(_ intent: ImageIntent) -> String {
+        switch intent {
+        case .losslessFirst: return SizqoIconName.eye
+        case .balanced: return SizqoIconName.sliders
+        case .asSmallAsPossible: return SizqoIconName.minimize
+        case .webSize: return SizqoIconName.globe
+        case .targetSize: return SizqoIconName.targetSize
+        case .custom: return SizqoIconName.settings
+        }
+    }
+
+    private var intentHelp: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(appState.intent.helpText)
+                .font(SizqoType.caption)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            // 结果导向的诚实话：重编像素不带元数据，系统转换才保留。
+            // 系统转换模式下这句不成立，所以只在高级路径说（与 Direct 的 note 一致）。
+            if appState.options.processingMode == .advanced {
+                Text(appState.intent.metadataNote)
+                    .font(SizqoType.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if appState.intent != .custom || appState.options.quality > 0 {
+                Text("将发送：\(appState.activeIntentSummary)")
+                    .font(SizqoType.caption)
+                    .foregroundColor(SizqoPalette.tertiaryText)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.bottom, SizqoSpacing.sm)
+    }
+
+    // 正交项：输出方式与自动开始必须常显可编辑（契约）。
+    private var orthogonalRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text("输出方式")
+                    .font(SizqoType.bodyMedium)
+                    .foregroundColor(.secondary)
+                Picker("", selection: $appState.options.outputMode) {
+                    Text("覆盖原文件").tag(OutputMode.replace)
+                    Text("加后缀").tag(OutputMode.suffix)
+                    Text("输出到目录").tag(OutputMode.folder)
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .controlSize(.small)
+                .fixedSize()
+                .onChange(of: appState.options.outputMode) { _ in appState.saveSettings() }
+
+                if appState.options.outputMode == .suffix {
+                    TextField("_compressed", text: $appState.options.outputSuffix)
+                        .textFieldStyle(.roundedBorder)
+                        .controlSize(.small)
+                        .frame(width: 110)
+                        .onChange(of: appState.options.outputSuffix) { _ in appState.saveSettings() }
+                }
+                if appState.options.outputMode == .folder {
+                    Button {
+                        _ = appState.pickOutputDir()
+                    } label: {
+                        HStack(spacing: 3) {
+                            SizqoIcon(name: SizqoIconName.folderOpen, size: 13)
+                            Text(appState.options.outputDir.map { ($0 as NSString).lastPathComponent } ?? "选择目录")
+                                .font(SizqoType.caption)
+                                .lineLimit(1)
+                        }
+                    }
+                    .buttonStyle(SmallButtonStyle())
+                }
+
+                Spacer(minLength: 0)
+
+                Text("自动开始")
+                    .font(SizqoType.bodyMedium)
+                    .foregroundColor(.secondary)
+                Toggle("", isOn: $appState.autoCompress)
+                    .toggleStyle(.switch)
+                    .controlSize(.mini)
+                    .labelsHidden()
+                    .onChange(of: appState.autoCompress) { _ in appState.saveSettings() }
+            }
+            if appState.options.outputMode == .folder && appState.options.outputDir == nil {
+                Text("尚未选择输出目录，开始压缩前需要先选好")
+                    .font(SizqoType.caption)
+                    .foregroundColor(SizqoPalette.caution)
+            }
+        }
+        .padding(.vertical, 7)
+    }
+
+    // 原始参数折叠区：默认折叠（初值判据由 HistoryStoreCheck [30] 钉住）。
+    private var disclosure: some View {
+        VStack(spacing: 0) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { appState.settingsExpanded.toggle() }
+            } label: {
+                HStack(spacing: 5) {
+                    SizqoIcon(name: SizqoIconName.sliders, size: 13, color: .secondary)
+                    Text("原始参数")
+                        .font(SizqoType.captionMedium)
                         .foregroundColor(.secondary)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 20)
-                } else {
-                    ForEach(appState.displayItems) { item in
-                        FileRowView(item: item)
+                    if appState.intent == .custom {
+                        Text("（自定义中）")
+                            .font(SizqoType.caption)
+                            .foregroundColor(.accentColor)
+                    }
+                    Spacer()
+                    SizqoIcon(
+                        name: SizqoIconName.chevronDown, size: 12,
+                        color: SizqoPalette.tertiaryText
+                    )
+                    .rotationEffect(.degrees(appState.settingsExpanded ? 180 : 0))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 6)
+
+            if appState.settingsExpanded && appState.options.processingMode == .advanced {
+                rawAdvancedParams
+                    .padding(.top, 2)
+            }
+        }
+    }
+
+    // 原始参数（advanced）：编辑任何一项 → 意图切 custom，屏幕立刻显示编译后的请求。
+    private var rawAdvancedParams: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text("质量")
+                    .font(SizqoType.caption)
+                    .foregroundColor(.secondary)
+                    .frame(width: 56, alignment: .leading)
+                Slider(value: Binding(
+                    get: { Double(appState.options.quality) },
+                    set: { appState.setQuality(Int($0)) }
+                ), in: 10...100, step: 1)
+                .controlSize(.small)
+                Text("\(appState.options.quality)")
+                    .font(SizqoType.digit(11))
+                    .foregroundColor(.secondary)
+                    .frame(width: 26, alignment: .trailing)
+            }
+            HStack(spacing: 8) {
+                Text("输出格式")
+                    .font(SizqoType.caption)
+                    .foregroundColor(.secondary)
+                    .frame(width: 56, alignment: .leading)
+                Picker("", selection: Binding(
+                    get: { appState.options.outputFormat },
+                    set: { appState.setOutputFormat($0) }
+                )) {
+                    Text("保持原格式").tag(OutputFormat.original)
+                    Text("JPEG").tag(OutputFormat.jpg)
+                    Text("PNG").tag(OutputFormat.png)
+                    Text("WebP").tag(OutputFormat.webp)
+                    Text("AVIF").tag(OutputFormat.avif)
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .controlSize(.small)
+                .frame(width: 120, alignment: .leading)
+                Spacer(minLength: 0)
+            }
+            HStack(spacing: 8) {
+                Text("尺寸上限")
+                    .font(SizqoType.caption)
+                    .foregroundColor(.secondary)
+                    .frame(width: 56, alignment: .leading)
+                TextField("不限", text: $maxDimDraft)
+                    .textFieldStyle(.roundedBorder)
+                    .controlSize(.small)
+                    .frame(width: 90)
+                    .onChange(of: maxDimDraft) { v in commitMaxDim(v) }
+                Text("px · 最长边，只缩不放大")
+                    .font(SizqoType.micro)
+                    .foregroundColor(SizqoPalette.tertiaryText)
+                Spacer(minLength: 0)
+            }
+            HStack(spacing: 8) {
+                Text("体积预算")
+                    .font(SizqoType.caption)
+                    .foregroundColor(.secondary)
+                    .frame(width: 56, alignment: .leading)
+                TextField("不限", text: $budgetDraftKiB)
+                    .textFieldStyle(.roundedBorder)
+                    .controlSize(.small)
+                    .frame(width: 90)
+                    .onChange(of: budgetDraftKiB) { v in commitBudget(v) }
+                Text("KiB · 最多 6 次编码求解")
+                    .font(SizqoType.micro)
+                    .foregroundColor(SizqoPalette.tertiaryText)
+                Spacer(minLength: 0)
+            }
+            Text("将发送：\(appState.activeIntentSummary)")
+                .font(SizqoType.caption)
+                .foregroundColor(.accentColor.opacity(0.85))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.top, 6)
+    }
+
+    // 系统转换模式的原始参数（它就是这条线的全部控件，无假选项）。
+    private var systemParams: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text("格式")
+                    .font(SizqoType.caption)
+                    .foregroundColor(.secondary)
+                    .frame(width: 56, alignment: .leading)
+                Picker("", selection: $appState.options.outputFormat) {
+                    Text("原格式").tag(OutputFormat.original)
+                    Text("JPEG").tag(OutputFormat.jpg)
+                    Text("PNG").tag(OutputFormat.png)
+                    Text("HEIF").tag(OutputFormat.heic)
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .controlSize(.mini)
+                .fixedSize()
+                .onChange(of: appState.options.outputFormat) { _ in appState.saveSettings() }
+                Spacer(minLength: 0)
+            }
+            HStack(spacing: 8) {
+                Text("图像大小")
+                    .font(SizqoType.caption)
+                    .foregroundColor(.secondary)
+                    .frame(width: 56, alignment: .leading)
+                Picker("", selection: $appState.options.systemImageSize) {
+                    ForEach(SystemImageSize.allCases, id: \.self) { s in
+                        Text(s.label).tag(s)
                     }
                 }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .controlSize(.small)
+                .frame(width: 180, alignment: .leading)
+                .onChange(of: appState.options.systemImageSize) { _ in appState.saveSettings() }
+                Spacer(minLength: 0)
+            }
+            HStack(spacing: 8) {
+                Text("元数据")
+                    .font(SizqoType.caption)
+                    .foregroundColor(.secondary)
+                    .frame(width: 56, alignment: .leading)
+                Toggle("保留元数据", isOn: $appState.options.preserveMetadata)
+                    .toggleStyle(.switch)
+                    .controlSize(.mini)
+                    .font(SizqoType.caption)
+                    .onChange(of: appState.options.preserveMetadata) { _ in appState.saveSettings() }
+                Button {
+                    showSystemInfo = true
+                } label: {
+                    SizqoIcon(name: SizqoIconName.info, size: 13)
+                }
+                .buttonStyle(RowActionButtonStyle())
+                .help("系统转换说明")
+                Spacer(minLength: 0)
             }
         }
-        .frame(maxHeight: AppMetrics.queueListMaxHeight)
-        .padding(.horizontal, 10)
         .padding(.vertical, 6)
     }
 
-    // .queue-actions：padding 8×14，gap 6
-    private var actions: some View {
-        HStack(spacing: 6) {
-            Button {
-                appState.addFilesPanel()
-            } label: {
-                Label {
-                    Text("追加文件")
-                } icon: {
-                    SizqoIcon(name: SizqoIconName.addImages, size: 16)
-                }
-                .labelIconToTextSpacing(4)
-            }
-            .buttonStyle(SecondaryButtonStyle())
-
-            if appState.hasRestorable {
-                Button {
-                    appState.restoreAll()
-                } label: {
-                    Label {
-                        Text("恢复全部原图")
-                    } icon: {
-                        SizqoIcon(name: SizqoIconName.restore, size: 16)
-                    }
-                    .labelIconToTextSpacing(4)
-                }
-                .buttonStyle(SecondaryButtonStyle())
-            }
-
-            Spacer(minLength: 8)
-
-            CompressButton()
-
-            // 与 Tauri 一致：进度按钮保持原样，旁边只加小号的暂停/继续与停止，
-            // 不新增大按钮、不改变现有 UI 密度。
-            if appState.isCompressing {
-                Button {
-                    appState.togglePause()
-                } label: {
-                    Label {
-                        Text(appState.compressionPaused ? "继续" : "暂停")
-                    } icon: {
-                        SizqoIcon(
-                            name: appState.compressionPaused ? SizqoIconName.play : SizqoIconName.pause,
-                            size: 16
-                        )
-                    }
-                    .labelIconToTextSpacing(4)
-                }
-                .buttonStyle(SecondaryButtonStyle())
-                .disabled(appState.compressionStopping)
-                .help(appState.compressionPaused
-                      ? "继续压缩"
-                      : "暂停：正在压缩的文件会先完成，之后再开新的")
-
-                Button {
-                    appState.stopBatch()
-                } label: {
-                    Label {
-                        Text(appState.compressionStopping ? "正在停止…" : "停止")
-                    } icon: {
-                        SizqoIcon(name: SizqoIconName.stop, size: 16)
-                    }
-                    .labelIconToTextSpacing(4)
-                }
-                .buttonStyle(SecondaryButtonStyle())
-                .disabled(appState.compressionStopping)
-                .help("停止：正在处理的文件会先完成，其余文件保留在队列中")
-            }
+    private func syncDrafts() {
+        maxDimDraft = appState.options.maxDimensionPx.map(String.init) ?? ""
+        if let b = appState.options.maxOutputBytes {
+            budgetDraftKiB = String(max(1, Int((Double(b) / 1024.0).rounded())))
+        } else {
+            budgetDraftKiB = ""
         }
-        .padding(.horizontal, AppMetrics.sectionHPadding)
-        .padding(.vertical, 8)
     }
 
-    private var queueSummaryText: String {
-        // 「已处理」而不是「已完成」，且分母是**队列**：停止后剩下的 pending
-        // 仍然算在总数里，所以摘要不会从 42 / 100 跳成 42 / 58。
-        if appState.isCompressing || appState.processedCount > 0 {
-            return appState.queueSummaryText
-                + appState.compressionPhaseSummary
-                + appState.cpuSummaryText
+    private func commitMaxDim(_ raw: String) {
+        let v = raw.trimmingCharacters(in: .whitespaces)
+        if v.isEmpty {
+            if appState.options.maxDimensionPx != nil { appState.setMaxDimension(nil) }
+            return
         }
-        return "\(appState.items.count) 个文件"
+        guard let parsed = Int(v), parsed > 0 else { return } // 非法输入不落盘
+        if parsed != appState.options.maxDimensionPx { appState.setMaxDimension(parsed) }
+    }
+
+    private func commitBudget(_ raw: String) {
+        let v = raw.trimmingCharacters(in: .whitespaces)
+        if v.isEmpty {
+            if appState.options.maxOutputBytes != nil { appState.setBudget(nil) }
+            return
+        }
+        guard let kib = Int(v), kib > 0 else { return }
+        let bytes = Int64(kib) * 1024
+        if bytes != appState.options.maxOutputBytes { appState.setBudget(bytes) }
     }
 }
 
-// MARK: - File Row（.file-queue-item：min-height 40，icon 24pt 圆盘，name 11px）
+/// 意图 chip：选中态 = 强调底 + 描边，纯展示组件，点击行为由父级注入。
+struct IntentChipView: View {
+    let title: String
+    let selected: Bool
+    let icon: String
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                SizqoIcon(name: icon, size: 13, color: selected ? .accentColor : .secondary)
+                Text(title)
+                    .font(SizqoType.captionMedium)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+            }
+            .foregroundColor(selected ? .accentColor : .primary)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(
+                RoundedRectangle(cornerRadius: SizqoRadius.chip, style: .continuous)
+                    .fill(selected ? SizqoPalette.accentSoft : (hovering ? SizqoPalette.emphasisSoft : Color.clear))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: SizqoRadius.chip, style: .continuous)
+                    .strokeBorder(selected ? Color.accentColor : SizqoPalette.hairline,
+                                  lineWidth: selected ? 1 : 0.5)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: SizqoRadius.chip, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+    }
+}
+
+// MARK: - 队列行（.file-queue-item：min-height 40；点击选中进详情栏）
 
 struct FileRowView: View {
     @EnvironmentObject var appState: AppState
@@ -472,21 +840,25 @@ struct FileRowView: View {
             iconDisc
 
             Text(item.fileName)
-                .font(.system(size: 11))
+                .font(SizqoType.caption)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             Text(sizeText)
-                .font(.system(size: 10).monospacedDigit())
-                .foregroundColor(item.status == .done ? .secondary : Color(nsColor: .tertiaryLabelColor))
+                .font(SizqoType.digit(10))
+                .foregroundColor(item.status == .done ? .secondary : SizqoPalette.tertiaryText)
                 .fixedSize()
 
             HStack(spacing: 2) {
                 Text(statusText)
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(SizqoType.microBold)
                     .foregroundColor(statusColor)
                     .lineLimit(1)
+                if !(item.result?.warnings ?? []).isEmpty || item.result?.targetMet == false {
+                    SizqoIcon(name: SizqoIconName.warning, size: 10, color: .yellow)
+                        .help((item.result?.warnings ?? []).joined(separator: "\n"))
+                }
                 if let err = item.result?.error, !err.isEmpty {
                     SizqoIcon(name: SizqoIconName.warning, size: 10, color: .yellow)
                         .help(err)
@@ -495,42 +867,44 @@ struct FileRowView: View {
             .frame(minWidth: 44, alignment: .trailing)
             .fixedSize(horizontal: true, vertical: false)
 
-            actions
-
-            if item.status == .pending {
-                Button {
-                    appState.removeItem(path: item.path)
-                } label: {
-                    SizqoIcon(name: SizqoIconName.close, size: 13)
+            // 行内只放图标动作；完整可执行动作集在详情栏带文字展示。
+            ForEach(ItemActions.forItem(appState: appState, item: item, compact: true)) { action in
+                Button(action: action.run) {
+                    SizqoIcon(name: action.icon, size: 13)
                 }
                 .buttonStyle(RowActionButtonStyle())
-                .help("移除")
+                .help(action.title)
             }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
         .frame(minHeight: 40)
         .background(
-            RoundedRectangle(cornerRadius: AppMetrics.smallRadius, style: .continuous)
+            RoundedRectangle(cornerRadius: SizqoRadius.control, style: .continuous)
                 .fill(rowBackground)
         )
+        .overlay(
+            RoundedRectangle(cornerRadius: SizqoRadius.control, style: .continuous)
+                .strokeBorder(selected ? Color.accentColor : Color.clear, lineWidth: 1)
+        )
         .opacity(rowOpacity)
+        .contentShape(Rectangle())
+        .onTapGesture { appState.selectedPath = item.path }
     }
 
-    // .queue-item-icon：24px 圆盘 radius 4，bg-secondary
+    private var selected: Bool { appState.selectedPath == item.path }
+
     @ViewBuilder
     private var iconDisc: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 4, style: .continuous)
-                .fill(Color.primary.opacity(0.05))
+                .fill(SizqoPalette.emphasisSoft)
                 .frame(width: 24, height: 24)
             switch item.status {
             case .pending:
-                // 暂停时换成暂停图标：转圈动画还在转，用户就以为没暂停。
                 SizqoIcon(
-                    name: appState.compressionPaused ? SizqoIconName.pause : SizqoIconName.compress,
-                    size: 13,
-                    color: .secondary
+                    name: appState.compressionPaused ? SizqoIconName.pause : SizqoIconName.image,
+                    size: 13, color: .secondary
                 )
             case .running:
                 ProgressView()
@@ -555,87 +929,15 @@ struct FileRowView: View {
         return CompressResult.formatBytesJS(item.fileSize)
     }
 
-    @ViewBuilder
-    private var actions: some View {
-        switch item.status {
-        case .done:
-            HStack(spacing: 2) {
-                if let r = item.result, r.success {
-                    Button { appState.saveResult(path: item.path) } label: {
-                        SizqoIcon(name: SizqoIconName.save, size: 14)
-                    }
-                    .buttonStyle(RowActionButtonStyle())
-                    .help("另存为")
-
-                    Button {
-                        CompareWindowController.show(
-                            appState: appState,
-                            originalPath: item.path,
-                            result: r,
-                            allResults: appState.comparableResults
-                        )
-                    } label: {
-                        SizqoIcon(name: SizqoIconName.compare, size: 14)
-                    }
-                    .buttonStyle(RowActionButtonStyle())
-                    .help("对比查看")
-
-                    Button { appState.restoreFile(path: item.path) } label: {
-                        SizqoIcon(name: SizqoIconName.restore, size: 14)
-                    }
-                    .buttonStyle(RowActionButtonStyle())
-                    .help("恢复原图")
-
-                    Button {
-                        appState.openInFinder(path: r.outputPath ?? item.path)
-                    } label: {
-                        SizqoIcon(name: SizqoIconName.finder, size: 14)
-                    }
-                    .buttonStyle(RowActionButtonStyle())
-                    .help("在访达中显示")
-                }
-                Button { appState.copyLog(path: item.path) } label: {
-                    SizqoIcon(name: SizqoIconName.copy, size: 14)
-                }
-                .buttonStyle(RowActionButtonStyle())
-                .help("复制日志")
-            }
-        case .failed:
-            HStack(spacing: 2) {
-                Button { appState.retryFile(path: item.path) } label: {
-                    SizqoIcon(name: SizqoIconName.recompress, size: 14)
-                }
-                .buttonStyle(RowActionButtonStyle())
-                .help("重试")
-
-                Button { appState.copyLog(path: item.path) } label: {
-                    SizqoIcon(name: SizqoIconName.copy, size: 14)
-                }
-                .buttonStyle(RowActionButtonStyle())
-                .help("复制日志")
-            }
-        case .restored:
-            Button { appState.retryFile(path: item.path) } label: {
-                SizqoIcon(name: SizqoIconName.recompress, size: 14)
-            }
-            .buttonStyle(RowActionButtonStyle())
-            .help("重新压缩")
-        default:
-            EmptyView()
-        }
-    }
-
-    // .file-queue-item 状态底色
     private var rowBackground: Color {
         switch item.status {
-        case .running: return Color.accentColor.opacity(0.12)
-        case .done: return Color.green.opacity(0.08)
-        case .failed: return Color.red.opacity(0.08)
-        default: return Color.clear
+        case .running: return SizqoPalette.accentSoft
+        case .done: return SizqoPalette.success.opacity(0.08)
+        case .failed: return SizqoPalette.danger.opacity(0.08)
+        default: return selected ? SizqoPalette.emphasisSoft : Color.clear
         }
     }
 
-    // waiting 0.8 / cancelled·removed 0.4 / restored 0.7
     private var rowOpacity: Double {
         switch item.status {
         case .pending: return 0.8
@@ -647,11 +949,9 @@ struct FileRowView: View {
 
     private var statusText: String {
         switch item.status {
-        // 暂停中排队的行写「已暂停」而不是「等待中」：它们此刻真的不会前进。
-        // 停止不改变队列状态：被延后的文件仍然是 pending，所以这里还是「等待中」。
+        // 与后端阶段同源：暂停 ≠ 没在收尾，停止 ≠ 队列干完（见 state-machine.md）。
         case .pending: return appState.compressionPaused ? "已暂停" : "等待中"
         case .running:
-            // 会话已经暂停 / 正在停止，但它真的还在跑：照实写「收尾中…」。
             if appState.compressionPaused || appState.compressionStopping { return "收尾中…" }
             return appState.options.processingMode == .system ? "转换中…" : "压缩中…"
         case .done:
@@ -665,7 +965,7 @@ struct FileRowView: View {
 
     private var statusColor: Color {
         switch item.status {
-        case .pending, .removed, .restored: return Color(nsColor: .tertiaryLabelColor)
+        case .pending, .removed, .restored: return SizqoPalette.tertiaryText
         case .running: return .accentColor
         case .done: return .green
         case .failed: return .red
@@ -673,7 +973,415 @@ struct FileRowView: View {
     }
 }
 
-// MARK: - Compress Button（.btn-full + .compress-progress-btn：13px/600，padding 8×20）
+// MARK: - 单件动作集（行内图标与详情栏共用同一判据，只列此刻真能做的）
+
+struct ItemAction: Identifiable {
+    let id = UUID()
+    let icon: String
+    let title: String
+    let run: () -> Void
+}
+
+@MainActor
+enum ItemActions {
+    /// compact = 行内（不重复放「移除」以外的低频动作时保持密度）；详情栏列全集。
+    static func forItem(appState: AppState, item: QueueItem, compact: Bool) -> [ItemAction] {
+        var out: [ItemAction] = []
+        switch item.status {
+        case .pending:
+            out.append(ItemAction(icon: SizqoIconName.close, title: "移除",
+                                  run: { appState.removeItem(path: item.path) }))
+        case .done:
+            if let r = item.result, r.success {
+                out.append(ItemAction(icon: SizqoIconName.save, title: "另存为",
+                                      run: { appState.saveResult(path: item.path) }))
+                out.append(ItemAction(icon: SizqoIconName.compare, title: "对比查看",
+                                      run: {
+                    CompareWindowController.show(
+                        appState: appState, originalPath: item.path, result: r,
+                        allResults: appState.comparableResults)
+                }))
+                out.append(ItemAction(icon: SizqoIconName.restore, title: "恢复原图",
+                                      run: { appState.restoreFile(path: item.path) }))
+                out.append(ItemAction(icon: SizqoIconName.finder, title: "在访达中显示",
+                                      run: { appState.openInFinder(path: r.outputPath ?? item.path) }))
+            }
+            out.append(ItemAction(icon: SizqoIconName.copy, title: "复制日志",
+                                  run: { appState.copyLog(path: item.path) }))
+        case .failed:
+            out.append(ItemAction(icon: SizqoIconName.recompress, title: "重试",
+                                  run: { appState.retryFile(path: item.path) }))
+            out.append(ItemAction(icon: SizqoIconName.copy, title: "复制日志",
+                                  run: { appState.copyLog(path: item.path) }))
+        case .restored:
+            out.append(ItemAction(icon: SizqoIconName.recompress, title: "重新压缩",
+                                  run: { appState.retryFile(path: item.path) }))
+        case .running, .removed:
+            break
+        }
+        // compact 时行宽有限：done 行保留 恢复/对比/访达/日志 之外的都收进详情栏
+        if compact, item.status == .done, item.result?.success == true {
+            out = out.filter { $0.title != "另存为" }
+        }
+        return out
+    }
+}
+
+// MARK: - 详情栏（选中项 = 单件详情 + 可用动作；空态 = 本轮汇总 + 当前意图摘要）
+
+struct DetailColumnView: View {
+    @EnvironmentObject var appState: AppState
+
+    private var selectedItem: QueueItem? {
+        guard let p = appState.selectedPath else { return nil }
+        return appState.items.first { $0.path == p && $0.status != .removed }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 5) {
+                SizqoIcon(name: SizqoIconName.eye, size: 14, color: .accentColor)
+                Text(selectedItem == nil ? "本轮总览" : "详情")
+                    .font(SizqoType.control)
+                Spacer()
+                if let item = selectedItem {
+                    Text(item.fileName)
+                        .font(SizqoType.micro)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+            .padding(.horizontal, SizqoSpacing.rowX)
+            .padding(.vertical, 10)
+
+            HairlineDivider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: SizqoSpacing.md) {
+                    if let item = selectedItem {
+                        ItemDetailView(item: item)
+                    } else {
+                        RunTotalsView()
+                        ActiveIntentSummaryView()
+                    }
+                }
+                .padding(SizqoSpacing.md)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .background(SizqoPalette.window)
+    }
+}
+
+private struct ItemDetailView: View {
+    @EnvironmentObject var appState: AppState
+    let item: QueueItem
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: SizqoSpacing.md) {
+            preview
+            rows
+            if let r = item.result, r.targetBytes != nil {
+                targetVerdict(r)
+            }
+            warningsBlock
+            actionsBlock
+        }
+    }
+
+    @ViewBuilder private var preview: some View {
+        let path = item.result?.outputPath ?? item.path
+        if let img = NSImage(contentsOfFile: path) {
+            Image(nsImage: img)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(maxHeight: 220)
+                .clipShape(RoundedRectangle(cornerRadius: SizqoRadius.card, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: SizqoRadius.card, style: .continuous)
+                        .strokeBorder(SizqoPalette.hairline, lineWidth: 0.5)
+                )
+        } else {
+            RoundedRectangle(cornerRadius: SizqoRadius.card, style: .continuous)
+                .fill(SizqoPalette.surfaceSunken)
+                .frame(height: 90)
+                .overlay(
+                    Text("无法读取预览")
+                        .font(SizqoType.caption)
+                        .foregroundColor(.secondary)
+                )
+        }
+    }
+
+    private var rows: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            if item.status == .done, let r = item.result {
+                detailRow("体积", "\(CompressResult.formatBytesJS(r.originalSize)) → \(CompressResult.formatBytesJS(r.compressedSize))")
+                detailRow("节省", r.savingsSignedText, r.savings >= 0 ? .green : .orange)
+                detailRow("尺寸", dimensionsText(r))
+                detailRow("算法", r.algorithm.isEmpty ? "(未知)" : r.algorithm)
+                if let ms = r.elapsedMs { detailRow("耗时", "\(ms) ms") }
+                detailRow("输出格式", r.outType.isEmpty ? "(未知)" : r.outType)
+            } else {
+                detailRow("体积", CompressResult.formatBytesJS(item.fileSize))
+                detailRow("状态", statusLine)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var statusLine: String {
+        switch item.status {
+        case .pending: return appState.compressionPaused ? "已暂停（等待中的文件不会前进）" : "等待中"
+        case .running: return appState.compressionStopping ? "收尾中…" : "压缩中…"
+        case .failed: return "失败 — \(item.result?.error ?? "")"
+        default: return "—"
+        }
+    }
+
+    private func dimensionsText(_ r: CompressResult) -> String {
+        let src = r.sourceWidth != nil ? "\(r.sourceWidth!)×\(r.sourceHeight!)" : "(未知)"
+        let out = r.outputWidth != nil ? "\(r.outputWidth!)×\(r.outputHeight!)" : "(未知)"
+        return src == out ? src : "\(src) → \(out)"
+    }
+
+    private func targetVerdict(_ r: CompressResult) -> some View {
+        let met = r.targetMet == true
+        return HStack(alignment: .top, spacing: 6) {
+            SizqoIcon(name: SizqoIconName.targetSize, size: 13, color: met ? .green : .orange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("体积预算 \(CompressResult.formatBytesJS(r.targetBytes ?? 0))")
+                    .font(SizqoType.captionMedium)
+                // 诚实规则 1：没打中预算绝不当成达成。
+                Text(met ? "已达成" : "未达成 · 实际 \(CompressResult.formatBytesJS(r.compressedSize))（最接近的一次）")
+                    .font(SizqoType.caption)
+                    .foregroundColor(met ? .green : .orange)
+            }
+        }
+        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: SizqoRadius.control, style: .continuous)
+                .fill((met ? Color.green : Color.orange).opacity(0.08))
+        )
+    }
+
+    @ViewBuilder private var warningsBlock: some View {
+        let warnings = (item.result?.warnings ?? [])
+            .compactMap { $0 as String? }
+        if !warnings.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(Array(warnings.enumerated()), id: \.offset) { _, w in
+                    HStack(alignment: .top, spacing: 5) {
+                        SizqoIcon(name: SizqoIconName.warning, size: 11, color: .yellow)
+                            .padding(.top, 1)
+                        Text(w)
+                            .font(SizqoType.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
+        if let err = item.result?.error, !err.isEmpty, item.status == .failed {
+            Text(err)
+                .font(SizqoType.caption)
+                .foregroundColor(SizqoPalette.danger)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var actionsBlock: some View {
+        // 契约：只列这项此刻真能执行的动作（判据与行内完全同源）。
+        let actions = ItemActions.forItem(appState: appState, item: item, compact: false)
+        return VStack(alignment: .leading, spacing: 6) {
+            if !actions.isEmpty {
+                HairlineDivider()
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 6)], alignment: .leading, spacing: 6) {
+                    ForEach(actions) { action in
+                        Button(action: action.run) {
+                            HStack(spacing: 4) {
+                                SizqoIcon(name: action.icon, size: 13)
+                                Text(action.title).font(SizqoType.captionMedium)
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 5)
+                            .background(
+                                RoundedRectangle(cornerRadius: SizqoRadius.control, style: .continuous)
+                                    .fill(SizqoPalette.surface)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: SizqoRadius.control, style: .continuous)
+                                    .strokeBorder(SizqoPalette.hairline, lineWidth: 0.5)
+                            )
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+
+    private func detailRow(_ label: String, _ value: String, _ color: Color = .primary) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text(label)
+                .font(SizqoType.caption)
+                .foregroundColor(.secondary)
+                .frame(width: 56, alignment: .leading)
+            Text(value)
+                .font(SizqoType.digit(11))
+                .foregroundColor(color)
+                .lineLimit(2)
+                .textSelection(.enabled)
+            Spacer(minLength: 0)
+        }
+    }
+}
+
+private struct RunTotalsView: View {
+    @EnvironmentObject var appState: AppState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("本轮")
+                .font(SizqoType.captionMedium)
+                .foregroundColor(.secondary)
+            HStack(spacing: SizqoSpacing.lg) {
+                stat("原始", CompressResult.formatBytesJS(appState.totalOriginal), .primary)
+                stat("压缩后", CompressResult.formatBytesJS(appState.totalCompressed), .accentColor)
+                stat("已节省", CompressResult.formatBytesJS(appState.totalSaved), .green)
+                stat("压缩率", String(format: "%.1f%%", appState.totalSavingsPct), .green)
+            }
+            Text("\(appState.queueProgress.summaryText)")
+                .font(SizqoType.caption)
+                .foregroundColor(.secondary)
+        }
+    }
+
+    private func stat(_ label: String, _ value: String, _ color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(label)
+                .font(SizqoType.micro)
+                .foregroundColor(SizqoPalette.tertiaryText)
+            Text(value)
+                .font(SizqoType.statValue.monospacedDigit())
+                .foregroundColor(color)
+        }
+    }
+}
+
+private struct ActiveIntentSummaryView: View {
+    @EnvironmentObject var appState: AppState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HairlineDivider()
+            HStack(spacing: 5) {
+                SizqoIcon(name: SizqoIconName.compress, size: 13, color: .accentColor)
+                Text("当前意图 · \(appState.intent.label)")
+                    .font(SizqoType.captionMedium)
+            }
+            Text(appState.activeIntentSummary)
+                .font(SizqoType.caption)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(appState.intent.helpText)
+                .font(SizqoType.caption)
+                .foregroundColor(SizqoPalette.tertiaryText)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+// MARK: - 运行条（全宽常驻；文案全部派生自后端会话阶段，不看按钮字面）
+
+struct RunBarView: View {
+    @EnvironmentObject var appState: AppState
+
+    var body: some View {
+        HStack(spacing: SizqoSpacing.md) {
+            CompressButton()
+                .frame(width: 180)
+
+            pauseStopCluster
+
+            VStack(alignment: .leading, spacing: 2) {
+                progressFill
+                HStack(spacing: SizqoSpacing.lg) {
+                    Text(appState.queueProgress.summaryText)
+                        .font(SizqoType.caption.monospacedDigit())
+                        .foregroundColor(.secondary)
+                    Text("已省 \(CompressResult.formatBytesJS(appState.totalSaved)) · \(String(format: "%.1f", appState.totalSavingsPct))%")
+                        .font(SizqoType.caption.monospacedDigit())
+                        .foregroundColor(.green)
+                    Text(appState.cpuSummaryText)
+                        .font(SizqoType.caption)
+                        .foregroundColor(.secondary)
+                    Text(appState.compressionPhaseSummary.trimmingCharacters(in: CharacterSet(charactersIn: " ·")))
+                        .font(SizqoType.captionMedium)
+                        .foregroundColor(SizqoPalette.running)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, SizqoSpacing.rowX)
+        .padding(.vertical, 8)
+        .background(SizqoPalette.window)
+    }
+
+    private var progressFill: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(SizqoPalette.emphasisSoft).frame(height: 4)
+                Capsule()
+                    .fill(appState.failedCount > 0 ? Color.orange : Color.accentColor)
+                    .frame(width: max(0, geo.size.width * appState.compressProgress), height: 4)
+                    .animation(.easeOut(duration: 0.3), value: appState.compressProgress)
+            }
+        }
+        .frame(height: 4)
+    }
+
+    @ViewBuilder private var pauseStopCluster: some View {
+        if appState.isCompressing {
+            Button {
+                appState.togglePause()
+            } label: {
+                Label {
+                    Text(appState.compressionPaused ? "继续" : "暂停")
+                } icon: {
+                    SizqoIcon(
+                        name: appState.compressionPaused ? SizqoIconName.play : SizqoIconName.pause,
+                        size: 14
+                    )
+                }
+                .labelIconToTextSpacing(3)
+            }
+            .buttonStyle(SecondaryButtonStyle())
+            .disabled(appState.compressionStopping)
+            .help(appState.compressionPaused ? "继续压缩" : "暂停：正在压缩的文件会先完成，之后再开新的")
+
+            Button {
+                appState.stopBatch()
+            } label: {
+                Label {
+                    Text(appState.compressionStopping ? "正在停止…" : "停止")
+                } icon: {
+                    SizqoIcon(name: SizqoIconName.stop, size: 14)
+                }
+                .labelIconToTextSpacing(3)
+            }
+            .buttonStyle(SecondaryButtonStyle())
+            .disabled(appState.compressionStopping)
+            .help("停止：正在处理的文件会先完成，其余文件保留在队列中")
+        }
+    }
+}
+
+// MARK: - Compress Button（.compress-progress-btn 语义保留：文案 = AppState 队列派生）
 
 struct CompressButton: View {
     @EnvironmentObject var appState: AppState
@@ -684,7 +1392,6 @@ struct CompressButton: View {
 
     private var buttonIcon: String {
         if appState.isCompressing {
-            // 暂停时换成静态的暂停图标：转圈动画还在转，用户就以为没暂停。
             return appState.compressionPhase == .paused
                 ? SizqoIconName.pause
                 : SizqoIconName.recompress
@@ -699,7 +1406,6 @@ struct CompressButton: View {
             appState.startCompress()
         } label: {
             ZStack(alignment: .leading) {
-                // 填充宽度 = 队列的 已处理 / 总数（派生值，停止 / 继续都不会归零）。
                 GeometryReader { geo in
                     Rectangle()
                         .fill(fillColor)
@@ -716,7 +1422,7 @@ struct CompressButton: View {
                 .frame(maxWidth: .infinity)
             }
             .padding(.vertical, 8)
-            .padding(.horizontal, 20)
+            .padding(.horizontal, 14)
             .frame(maxWidth: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: AppMetrics.smallRadius, style: .continuous)
@@ -746,264 +1452,6 @@ struct CompressButton: View {
     }
 }
 
-// MARK: - Settings Panel（.settings-panel 卡片：header 10×14 + 行分区）
-
-struct SettingsPanelView: View {
-    @EnvironmentObject var appState: AppState
-    @Binding var showSystemInfo: Bool
-
-    var body: some View {
-        VStack(spacing: 0) {
-            // .settings-header：padding 10×14，收起时显示摘要
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) { appState.settingsExpanded.toggle() }
-            } label: {
-                HStack(spacing: 5) {
-                    SizqoIcon(name: SizqoIconName.sliders, size: 15, color: .accentColor)
-                    Text("压缩设置")
-                        .font(.system(size: 13, weight: .semibold))
-                    if !appState.settingsExpanded {
-                        Text(appState.settingsSummary)
-                            .font(.system(size: 11, weight: .regular))
-                            .foregroundColor(Color(nsColor: .tertiaryLabelColor))
-                            .lineLimit(1)
-                            .padding(.leading, 1)
-                    }
-                    Spacer()
-                    SizqoIcon(
-                        name: SizqoIconName.chevronDown,
-                        size: 13,
-                        color: Color(nsColor: .tertiaryLabelColor)
-                    )
-                    .rotationEffect(.degrees(appState.settingsExpanded ? 180 : 0))
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .padding(.horizontal, AppMetrics.sectionHPadding)
-            .padding(.vertical, 10)
-
-            if appState.settingsExpanded {
-                HairlineDivider()
-                VStack(spacing: 0) {
-                    processingModeRow
-                    rowSeparator
-                    autoRow
-                    if appState.options.processingMode == .system {
-                        systemModeSettings
-                    } else {
-                        advancedModeSettings
-                    }
-                }
-                .padding(.horizontal, AppMetrics.sectionHPadding)
-                .padding(.vertical, 2)
-            }
-        }
-        .cardStyle()
-        .clipShape(RoundedRectangle(cornerRadius: AppMetrics.cardRadius, style: .continuous))
-    }
-
-    private var rowSeparator: some View {
-        HairlineDivider()
-    }
-
-    private var processingModeRow: some View {
-        SettingsRow(label: "处理方式") {
-            Picker("", selection: $appState.options.processingMode) {
-                Text("系统转换").tag(ProcessingMode.system)
-                Text("高级压缩").tag(ProcessingMode.advanced)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .controlSize(.small)
-            .frame(width: 170)
-            .onChange(of: appState.options.processingMode) { _ in appState.saveSettings() }
-            Button {
-                showSystemInfo = true
-            } label: {
-                SizqoIcon(name: SizqoIconName.info, size: 14)
-            }
-            .buttonStyle(RowActionButtonStyle())
-            .help("系统转换说明")
-        }
-    }
-
-    private var autoRow: some View {
-        SettingsRow(label: "自动处理", showSeparator: false) {
-            Toggle(appState.options.processingMode == .system ? "拖入或选择后自动转换" : "拖入或选择后自动压缩",
-                   isOn: $appState.autoCompress)
-                .toggleStyle(.switch)
-                .controlSize(.mini)
-                .font(.system(size: 11))
-                .onChange(of: appState.autoCompress) { _ in appState.saveSettings() }
-        }
-    }
-
-    // 与 index.html 的 DOM 顺序一致：输出模式插在 系统参数 / 压缩质量 与 智能模式 之间
-    var systemModeSettings: some View {
-        Group {
-            SettingsRow(label: "格式") {
-                Picker("", selection: $appState.options.outputFormat) {
-                    Text("原格式").tag(OutputFormat.original)
-                    Text("JPEG").tag(OutputFormat.jpg)
-                    Text("PNG").tag(OutputFormat.png)
-                    Text("HEIF").tag(OutputFormat.heic)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .controlSize(.small)
-                .onChange(of: appState.options.outputFormat) { _ in appState.saveSettings() }
-            }
-            SettingsRow(label: "图像大小") {
-                Picker("", selection: $appState.options.systemImageSize) {
-                    ForEach(SystemImageSize.allCases, id: \.self) { s in
-                        Text(s.label).tag(s)
-                    }
-                }
-                .pickerStyle(.menu)
-                .labelsHidden()
-                .controlSize(.small)
-                .frame(width: 170, alignment: .leading)
-                .onChange(of: appState.options.systemImageSize) { _ in appState.saveSettings() }
-            }
-            SettingsRow(label: "元数据") {
-                Toggle("保留元数据", isOn: $appState.options.preserveMetadata)
-                    .toggleStyle(.switch)
-                    .controlSize(.mini)
-                    .font(.system(size: 11))
-                    .onChange(of: appState.options.preserveMetadata) { _ in appState.saveSettings() }
-            }
-            outputModeSection
-        }
-    }
-
-    var advancedModeSettings: some View {
-        Group {
-            SettingsRow(label: "压缩质量") {
-                HStack(spacing: 8) {
-                    Slider(value: Binding(
-                        get: { Double(appState.options.quality) },
-                        set: { appState.options.quality = Int($0); appState.saveSettings() }
-                    ), in: 10...100, step: 1)
-                    .controlSize(.small)
-                    Text("\(appState.options.quality)%")
-                        .font(.system(size: 11, design: .rounded).monospacedDigit())
-                        .foregroundColor(.secondary)
-                        .frame(width: 34, alignment: .trailing)
-                }
-            }
-            outputModeSection
-            SettingsRow(label: "智能模式") {
-                Toggle("自动选择最佳算法和参数", isOn: $appState.options.smartMode)
-                    .toggleStyle(.switch)
-                    .controlSize(.mini)
-                    .font(.system(size: 11))
-                    .onChange(of: appState.options.smartMode) { _ in appState.saveSettings() }
-            }
-            SettingsRow(label: "转换为 WebP") {
-                Toggle("输出为 WebP 格式（更小体积）", isOn: $appState.options.convertToWebp)
-                    .toggleStyle(.switch)
-                    .controlSize(.mini)
-                    .font(.system(size: 11))
-                    .onChange(of: appState.options.convertToWebp) { _ in appState.saveSettings() }
-            }
-            SettingsRow(label: "输出格式") {
-                Picker("", selection: $appState.options.outputFormat) {
-                    Text("保持原格式").tag(OutputFormat.original)
-                    Text("JPEG").tag(OutputFormat.jpg)
-                    Text("PNG").tag(OutputFormat.png)
-                    Text("WebP").tag(OutputFormat.webp)
-                    Text("AVIF").tag(OutputFormat.avif)
-                }
-                .pickerStyle(.menu)
-                .labelsHidden()
-                .controlSize(.small)
-                .frame(width: 130, alignment: .leading)
-                .onChange(of: appState.options.outputFormat) { _ in appState.saveSettings() }
-            }
-            SettingsRow(label: "压缩引擎") {
-                Picker("", selection: $appState.options.backend) {
-                    ForEach(CompressionBackend.allCases, id: \.self) { b in
-                        Text(b.label).tag(b)
-                    }
-                }
-                .pickerStyle(.menu)
-                .labelsHidden()
-                .controlSize(.small)
-                .frame(width: 160, alignment: .leading)
-                .onChange(of: appState.options.backend) { _ in appState.saveSettings() }
-            }
-            SettingsRow(label: "压缩力度") {
-                Picker("", selection: $appState.options.effort) {
-                    ForEach(CompressionEffort.allCases, id: \.self) { e in
-                        Text(e.label).tag(e)
-                    }
-                }
-                .pickerStyle(.menu)
-                .labelsHidden()
-                .controlSize(.small)
-                .frame(width: 150, alignment: .leading)
-                .onChange(of: appState.options.effort) { _ in appState.saveSettings() }
-            }
-        }
-    }
-
-    var outputModeSection: some View {
-        Group {
-            SettingsRow(label: "输出模式") {
-                Picker("", selection: $appState.options.outputMode) {
-                    Text("覆盖原文件").tag(OutputMode.replace)
-                    Text("添加自定义后缀").tag(OutputMode.suffix)
-                    Text("输出到指定文件夹").tag(OutputMode.folder)
-                }
-                .pickerStyle(.radioGroup)
-                .labelsHidden()
-                .font(.system(size: 11))
-                .onChange(of: appState.options.outputMode) { _ in appState.saveSettings() }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            if appState.options.outputMode == .suffix {
-                SettingsRow(label: "文件名后缀") {
-                    HStack(spacing: 8) {
-                        TextField("_compressed", text: $appState.options.outputSuffix)
-                            .textFieldStyle(.roundedBorder)
-                            .controlSize(.small)
-                            .frame(width: 160)
-                            .onChange(of: appState.options.outputSuffix) { _ in appState.saveSettings() }
-                        Text("例如 _small")
-                            .font(.system(size: 11))
-                            .foregroundColor(Color(nsColor: .tertiaryLabelColor))
-                    }
-                }
-            }
-            if appState.options.outputMode == .folder {
-                SettingsRow(label: "输出目录", showSeparator: false) {
-                    HStack(spacing: 8) {
-                        Text(appState.options.outputDir ?? "未选择")
-                            .font(.system(size: 11))
-                            .foregroundColor(appState.options.outputDir == nil
-                                             ? Color(nsColor: .tertiaryLabelColor) : .primary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .frame(maxWidth: 220, alignment: .leading)
-                        Button("浏览") { _ = appState.pickOutputDir() }
-                            .buttonStyle(SecondaryButtonStyle())
-                            .font(.system(size: 11))
-                    }
-                }
-            } else {
-                // 折叠：最后可见行不画分隔线
-                LastRowHider()
-            }
-        }
-    }
-}
-
-/// 输出模式为 folder 以外时，隐藏前一行残留分隔线的空实现（分隔线逻辑集中在 SettingsRow）
-private struct LastRowHider: View {
-    var body: some View { EmptyView() }
-}
-
 // MARK: - System Info Modal
 
 struct SystemInfoModal: View {
@@ -1029,11 +1477,11 @@ struct SystemInfoModal: View {
                 }
 
                 Text("系统转换使用 macOS 自带的图像转换能力，行为对齐 Finder 中选中图片后右键「快速操作 → 转换图像」的默认方式。")
-                    .font(.system(size: 12))
+                    .font(SizqoType.body)
                     .fixedSize(horizontal: false, vertical: true)
 
                 Text("可选择输出格式、图像大小和是否保留元数据；不会调用第三方压缩工具。此模式仅在 macOS 上可用。")
-                    .font(.system(size: 12))
+                    .font(SizqoType.body)
                     .fixedSize(horizontal: false, vertical: true)
 
                 HStack {
@@ -1047,11 +1495,11 @@ struct SystemInfoModal: View {
             .frame(width: 400)
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color(nsColor: .windowBackgroundColor))
+                    .fill(SizqoPalette.window)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(Color(nsColor: .separatorColor).opacity(0.6), lineWidth: 0.5)
+                    .strokeBorder(SizqoPalette.hairline, lineWidth: 0.5)
             )
             .shadow(color: Color.black.opacity(0.25), radius: 16, y: 4)
             .padding(24)

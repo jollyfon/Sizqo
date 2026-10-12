@@ -214,12 +214,31 @@
     });
   }
 
+  /// 一组编码参数的一句话摘要（意图条用它说明"现在真正在跑什么"）。
+  /// 注意与 videoSummary(probe) 区分：那个描述的是**源文件**，这个描述的是**请求**。
+  function controlSummary(options) {
+    const value = normalizeOptions(options);
+    const parts = [];
+    if (value.mode === 'crf') parts.push('CRF ' + value.crf);
+    else if (value.mode === 'targetSize') parts.push('目标 ' + value.targetMiB + ' MiB（估算）');
+    else parts.push(value.bitrateKbps + ' kbps' + (value.mode === 'twoPass' ? ' · 两遍' : ''));
+    parts.push(String(value.container || 'mp4').toUpperCase());
+    if (value.encoder && value.encoder !== 'auto') parts.push(value.encoder);
+    if (value.resolution) parts.push('最长边 ' + value.resolution);
+    if (value.frameRate) parts.push(value.frameRate + ' fps');
+    parts.push(value.audioPolicy === 'copy' ? '音轨复制' : value.audioPolicy.toUpperCase());
+    if (value.subtitlePolicy === 'drop') parts.push('去字幕');
+    if (value.metadataPolicy === 'strip') parts.push('去元数据');
+    return parts.join(' · ');
+  }
+
   const api = Object.freeze({
     DEFAULT_OPTIONS,
     PRESET_LABELS,
     normalizeOptions,
     presetId,
     presetLabel,
+    controlSummary,
     findEncoder,
     encoderModes,
     knownEncoderFamily,

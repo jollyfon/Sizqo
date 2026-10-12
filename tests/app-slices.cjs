@@ -65,27 +65,31 @@ function installSessionModel(context) {
   vm.runInContext(sessionModel(), context);
 }
 
-module.exports = {
-  source, slice,
-  installTranslationFallback,
-  queueCore, installQueueCore,
-  queueRowPainter, installQueueRowPainter,
-  sessionModel, installSessionModel,
-  stateMachine, installStateMachine,
-  installMediaWorkspaceStubs,
-};
+/// 路径小工具（basename / extname / dirname / imageFileSrc）。
+/// 行的"名字 + 所在目录"和详情列的格式标签都从这几个函数读，测试装真的那份。
+function installPathUtils(context) {
+  vm.runInContext(slice('function basename(p) {', 'function setImageSource('), context);
+}
+
+/// 详情列的那几个格子（section / text / specs / callout / actions / preview）。
+/// 本轮和历史的详情列共用它们：断言详情列写了什么，就是断言这里。
+function installDetailHelpers(context) {
+  installTranslationFallback(context);
+  vm.runInContext(slice('function detailSection(', 'function renderDetailPane('), context);
+}
 
 /// 媒体工作台（图片 / 视频过滤、媒体任务导入）在切片外还有几个全局依赖：
-/// mediaFilter / settingsPanel / videoSettingsPanel / renderStartButton / window.crypto /
+/// mediaFilter / renderStartButton / renderDetailPane / window.crypto /
 /// document.querySelectorAll。队列与会话测试只关心队列行为，这里统一补桩，
 /// 谁先显式给过值就不覆盖。
 function installMediaWorkspaceStubs(context) {
   if (typeof context.mediaFilter === 'undefined') context.mediaFilter = 'all';
   if (typeof context.historyFilter === 'undefined') context.historyFilter = 'all';
-  if (typeof context.settingsPanel === 'undefined') context.settingsPanel = { style: {} };
-  if (typeof context.videoSettingsPanel === 'undefined') context.videoSettingsPanel = { style: {} };
   if (typeof context.renderStartButton !== 'function') context.renderStartButton = () => {};
-  if (typeof context.window === 'undefined') context.window = {};
+  if (typeof context.renderDetailPane !== 'function') context.renderDetailPane = () => {};
+  if (typeof context.renderRunBar !== 'function') context.renderRunBar = () => {};
+  if (typeof context.renderIntentBar !== 'function') context.renderIntentBar = () => {};
+  if (typeof context.window === 'undefined') context.window = { SizqoI18n: { translateText: value => value } };
   if (typeof context.window.crypto === 'undefined') {
     context.window.crypto = { randomUUID: () => `task-${Math.random().toString(36).slice(2)}` };
   }
@@ -93,3 +97,74 @@ function installMediaWorkspaceStubs(context) {
     context.document.querySelectorAll = () => [];
   }
 }
+
+/// 意图编译器是真的（frontend/intents.js）：切片外的措辞函数要读它。
+/// 测试给的 imageIntent / videoIntent 只是"用户此刻的选择"，请求每轮现编译 ——
+/// 和界面一样，中间不留一份游离的参数。
+function installIntentModel(context) {
+  context.window = context.window || {};
+  context.window.SizqoIntents = require('../frontend/intents.js');
+  if (typeof context.isMacOS !== 'function') context.isMacOS = () => false;
+  if (!context.imageIntent) {
+    context.imageIntent = {
+      intent: 'balanced', quality: 75, outputFormat: 'original',
+      systemOutputFormat: 'original', systemImageSize: 'actual', preserveMetadata: true,
+      maxDimensionPx: null, maxOutputBytes: null,
+    };
+  }
+  if (!context.videoIntent) context.videoIntent = { intent: 'videoSmall', targetMiB: 100 };
+  if (typeof context.imageRequestFromIntent !== 'function') {
+    context.imageRequestFromIntent = () => context.window.SizqoIntents.compileImage(context.imageIntent, context.isMacOS());
+  }
+  if (typeof context.videoRequestFromIntent !== 'function') {
+    context.videoRequestFromIntent = () => context.window.SizqoIntents.compileVideo(
+      context.videoIntent, {}, { normalizeOptions: options => Object.assign({}, options) });
+  }
+  if (typeof context.runIntentSnapshot === 'undefined') context.runIntentSnapshot = null;
+}
+
+/// 「系统模式判据」整段：systemModeActive / requestForRun / requestForNext /
+/// systemModeForRun / intentLabelForRun。它们只读意图编译结果和开跑快照，
+/// 但主流程、状态机、按钮文案都要调 —— 给一个统一安装入口，
+/// 免得各测试各自补一个假判据，跑的已经不是那一句真实的判断。
+function installSystemMode(context) {
+  installTranslationFallback(context);
+  installIntentModel(context);
+  vm.runInContext(slice('/// 当前意图是不是系统转换', 'function clearAllFiles('), context);
+}
+
+/// 选中一项。真实代码只有一处（paintQueueRow 重画旧行 + 新行），测试装它本身，
+/// 不装一个假桩 —— 导入后"详情列不许是空的"正是靠这段真实行为。
+/// selectedQueueFile 是 app.js 的全局变量，这里给它的初值。
+function installSelection(context) {
+  installTranslationFallback(context);
+  if (typeof context.selectedQueueFile === 'undefined') context.selectedQueueFile = null;
+  vm.runInContext(slice('/// 选中一项：行上只有一条选中线', 'function detailSection('), context);
+}
+
+/// 「运行条」：阶段文案 + 体积账 + CPU 摘要，全都只从队列快照和状态机派生。
+/// 暂停 / 停止必须在这条栏上留下看得见的痕迹，所以阶段测试装的是真实实现，
+/// 不是"反正画什么都不看"的假桩。
+function installRunBar(context) {
+  installTranslationFallback(context);
+  vm.runInContext(slice('function formatBytes(', '// ─── 页面导航'), context);
+  vm.runInContext(slice('/// 队列的体积账', '/// 选中一项：行上只有一条选中线'), context);
+}
+
+/// 「processingActionText」：开始 / 继续 / 进度 / 完成的措辞只由意图与阶段决定。
+/// 它不属于任何切片，但状态机切片和运行条都调它，所以给它一个安装入口。
+function installActionText(context) {
+  installSystemMode(context);
+  vm.runInContext(slice('function processingActionText(', '// ─── 意图条'), context);
+}
+
+module.exports = {
+  source, slice,
+  installTranslationFallback,
+  queueCore, installQueueCore,
+  queueRowPainter, installQueueRowPainter,
+  sessionModel, installSessionModel,
+  stateMachine, installStateMachine,
+  installMediaWorkspaceStubs, installIntentModel, installSystemMode, installActionText,
+  installSelection, installRunBar, installPathUtils, installDetailHelpers,
+};

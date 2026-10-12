@@ -23,9 +23,19 @@ fn ok(data: Vec<u8>, out_type: &str, algorithm: &str) -> EngineResult {
         out_type: out_type.into(),
         algorithm: algorithm.into(),
         error: None,
+        ..Default::default()
     }
 }
 
+/// 「保留原图」这一支交回的字节就是**源文件本身**，所以 out_type 必须写源格式。
+/// 与 CLI 线（`engine::kept_original`）同一条规则：格式转换没压小回来时，
+/// 落盘拿到的标签必须和字节内容一致，否则会得到一个扩展名骗人的文件。
+fn kept_original(file: &Path, original: Vec<u8>, algorithm: &str, orig_size: u64, comp_size: u64) -> EngineResult {
+    let source_type = detect_image_type(file);
+    no_improvement(original, &source_type, algorithm, orig_size, comp_size)
+}
+
+/// 压缩后体积未减小：返回原始数据，标记为"无优化空间"（不算失败）
 fn no_improvement(original: Vec<u8>, out_type: &str, algorithm: &str, orig_size: u64, comp_size: u64) -> EngineResult {
     let msg = if comp_size >= orig_size {
         format!("压缩后 {} > 原始 {}，原图已是最优压缩", super::format_bytes(comp_size), super::format_bytes(orig_size))
@@ -38,6 +48,7 @@ fn no_improvement(original: Vec<u8>, out_type: &str, algorithm: &str, orig_size:
         out_type: out_type.into(),
         algorithm: algorithm.into(),
         error: Some(msg),
+        ..Default::default()
     }
 }
 
@@ -48,6 +59,7 @@ fn unsupported(original: Vec<u8>, out_type: &str, reason: &str) -> EngineResult 
         out_type: out_type.into(),
         algorithm: "none".into(),
         error: Some(reason.into()),
+        ..Default::default()
     }
 }
 
@@ -76,7 +88,7 @@ async fn compress_png(file: &Path, options: &CompressOptions) -> EngineResult {
         }
     }
 
-    no_improvement(original, "png", "pngquant (inproc)", original_size, original_size)
+    kept_original(file, original, "pngquant (inproc)", original_size, original_size)
 }
 
 /// image crate 兜底：PNG 无损重编码，保留原色型（RGB→RGB8，RGBA→RGBA8）。
@@ -227,7 +239,7 @@ async fn compress_jpg(file: &Path, options: &CompressOptions) -> EngineResult {
             return ok(data, "jpg", "image-jpeg (inproc)");
         }
     }
-    no_improvement(original, "jpg", "mozjpeg (inproc)", original_size, original_size)
+    kept_original(file, original, "mozjpeg (inproc)", original_size, original_size)
 }
 
 /// webp crate 编码（同源 cwebp/libwebp）：from_rgba + encode(quality)。
@@ -250,7 +262,7 @@ async fn compress_to_webp(file: &Path, options: &CompressOptions) -> EngineResul
             return ok(data, "webp", "cwebp (inproc)");
         }
     }
-    no_improvement(original, "webp", "cwebp (inproc)", original_size, original_size)
+    kept_original(file, original, "cwebp (inproc)", original_size, original_size)
 }
 
 /// image crate 重编码 GIF（保留所有帧，无 gifsicle 减色优化，功能降级但可用）。
@@ -279,7 +291,7 @@ async fn compress_gif(file: &Path, options: &CompressOptions) -> EngineResult {
         }
     }
 
-    no_improvement(original, "gif", "gifsicle (inproc)", original_size, original_size)
+    kept_original(file, original, "gifsicle (inproc)", original_size, original_size)
 }
 
 /// ravif crate 编码（同源 AV1/rav1e，对齐 avifenc）：with_quality + with_speed(6)。
@@ -309,14 +321,14 @@ async fn compress_to_avif(file: &Path, options: &CompressOptions) -> EngineResul
             return ok(data, "avif", "avifenc (inproc)");
         }
     }
-    no_improvement(original, "avif", "avifenc (inproc)", original_size, original_size)
+    kept_original(file, original, "avifenc (inproc)", original_size, original_size)
 }
 
 /// JPEG XL：App Store 版暂未接入 libjxl（编译链重），友好降级保留原图不崩。
 async fn compress_to_jxl(file: &Path, _options: &CompressOptions) -> EngineResult {
     let original = fs::read(file).unwrap_or_default();
     let original_size = original.len() as u64;
-    no_improvement(original, "jxl", "cjxl (inproc, 暂未接入)", original_size, original_size)
+    kept_original(file, original, "cjxl (inproc, 暂未接入)", original_size, original_size)
 }
 
 pub async fn compress_image(file: &Path, options: &CompressOptions) -> EngineResult {
@@ -464,22 +476,12 @@ mod tests {
         assert!(!result.algorithm.starts_with("none"), "走了兜底分支：{:?}", result.error);
     }
 
+    /// 只覆盖真正被引擎读到的字段；其余走 Default（旧的 backend/effort/smartMode/
+    /// convertToWebp/lossless 已删除，没有任何一条路径读过它们）。
     fn inproc_options(quality: u32) -> CompressOptions {
         CompressOptions {
-            processing_mode: "advanced".into(),
-            system_image_size: "actual".into(),
-            preserve_metadata: true,
             quality,
-            output_format: "original".into(),
-            smart_mode: false,
-            backend: "auto".into(),
-            effort: 3,
-            convert_to_webp: false,
-            output_mode: "suffix".into(),
-            output_suffix: "_compressed".into(),
-            output_dir: None,
-            source_roots: Vec::new(),
-            lossless: None,
+            ..Default::default()
         }
     }
 }

@@ -11,7 +11,7 @@ const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const {
   source, slice, installStateMachine, installQueueCore, installSessionModel, installQueueRowPainter,
-  installMediaWorkspaceStubs,
+  installMediaWorkspaceStubs, installActionText, installSelection,
 } = require('./app-slices.cjs');
 
 const summary = { textContent: '' };
@@ -24,7 +24,7 @@ let progress = null;
 
 const context = vm.createContext({
   console, Set, Map, Promise, Date,
-  files: [], inputPaths: [], pendingAutoCompress: false, processingMode: 'advanced',
+  files: [], inputPaths: [], pendingAutoCompress: false,
   queueItems: new Map(), fileRows: {}, queueRevision: 0,
   executionSession: null, sessionSeq: 0,
   document: {
@@ -50,20 +50,21 @@ const context = vm.createContext({
   formatBytes: String, iconMarkup: () => '<svg></svg>',
   basename: file => file.split('/').pop(),
   showToast: message => toasts.push(message),
-  updateStats() {}, showResults() {}, applyQueueView() {},
+  applyQueueView() {},
   refreshHistoryIfOpen() {}, emitCompareResultsChanged() {}, showErrorDetail() {},
   renderQueueResultActions() {}, renderRestoredActions() {},
 });
 
 installMediaWorkspaceStubs(context);
 vm.runInContext(slice('function uniqueFilePaths(', 'async function renderFileQueue('), context);
-vm.runInContext(slice('function processingActionText(', 'function setProcessingMode('), context);
+installActionText(context);
 installQueueCore(context);
 installStateMachine(context);
 installQueueRowPainter(context);
+installSelection(context);
 installSessionModel(context);
 context.setCompressionState('idle', true);
-vm.runInContext(slice('async function startCompression(', 'function updateStats('), context);
+vm.runInContext(slice('async function startCompression(', '// ─── 运行条 + 详情列'), context);
 // 单文件重试：把那一行放回 pending 再开一轮只含它。
 vm.runInContext(slice('async function compressOneFile(', 'async function saveResult('), context);
 
@@ -71,11 +72,11 @@ vm.runInContext(slice('async function compressOneFile(', 'async function saveRes
 context.renderFileQueue = () => context.files.forEach(file => {
   if (context.fileRows[file]) return;
   const parts = {
-    '.queue-item-icon': { innerHTML: '' },
-    '.queue-item-status': { textContent: '' },
-    '.queue-item-size': { textContent: '' },
-    '.queue-item-actions': { innerHTML: '', querySelector: () => null },
-    '.queue-item-remove': { style: {}, addEventListener() {} },
+    '.media-state-icon': { innerHTML: '' },
+    '.media-meta': { textContent: '' },
+    '.media-size': { textContent: '' },
+    '.media-actions': { innerHTML: '', querySelector: () => null },
+    '.media-remove': { style: {}, addEventListener() {} },
   };
   context.fileRows[file] = {
     classList: { toggle() {}, add() {}, remove() {}, contains: () => false },
