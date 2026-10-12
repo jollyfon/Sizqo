@@ -138,6 +138,64 @@ rows above are filled in only with the exit codes actually observed.
   (HTTP 200), and release assets are anonymously downloadable. The actual
   download-and-install path engages from the next release onward.
 
+## Release: v0.2.0 (2026-10-12)
+
+Tag `v0.2.0` → commit `6c50b92` (on top of `dc718d5` credential fix and
+`e91b95c` the intent-first redesign). Release:
+https://github.com/misswell/Sizqo/releases/tag/v0.2.0. Working tree was clean
+and equal to `origin/main` at build time (`git status --porcelain` empty,
+`git rev-parse HEAD` = `git rev-parse origin/main`), so the shipped binary is
+this commit's sources.
+
+- Built, signed and notarized with `bash scripts/notarize.sh` (ASC API-key route,
+  see `dc718d5`): `NOTARIZE_EXIT=0`, notary `status: Accepted`.
+  Keychain profile `sizqo-notary` does **not** exist on this machine and
+  `store-credentials` cannot write from a non-interactive shell, so the run
+  used `--key/--key-id/--issuer` extracted into a `umask 077` temp file.
+- Artifact set (all four uploaded, sizes verified against the local files):
+  `Sizqo-0.2.0-macos.dmg` 31,703,781 B · `Sizqo.app.tar.gz` 4,432,774 B ·
+  `Sizqo.app.tar.gz.sig` 404 B · `latest.json` 659 B.
+
+| Check | Command | Result |
+|-------|---------|--------|
+| Stapled | `xcrun stapler validate Sizqo.app` / `… Sizqo-0.2.0-macos.dmg` | ✅ EXIT 0 both |
+| Deep signature | `codesign --verify --deep --strict --verbose=2 Sizqo.app` | ✅ EXIT 0 |
+| Gatekeeper | `spctl --assess -vvv -t install Sizqo.app` | ✅ accepted, `source=Notarized Developer ID`, `com.misswell.sizqo` |
+| Feed serves this version | `curl -L …/releases/latest/download/latest.json` | ✅ HTTP 200, `version: "0.2.0"`, URL → `…/download/v0.2.0/Sizqo.app.tar.gz` |
+| Anonymous download | `curl -L` DMG + tar.gz | ✅ byte-identical SHA-256 to local (`2d4887b8…`, `50f11e0c…`) |
+| Updater signature | `minisign -V -x sig -p <committed pubkey> -m Sizqo.app.tar.gz` | ✅ "Signature and comment signature verified" (key `CA755A8F7DAAC119`, Sizqo's own) |
+| Published install path | `hdiutil attach` the downloaded DMG → `spctl --assess -t exec` + `CFBundleShortVersionString` | ✅ accepted as Notarized Developer ID, version `0.2.0` |
+
+UI verification actually performed for this release:
+
+- The packaged app launches and owns a real 1180×760 window titled "Sizqo"
+  (`CGWindowListCopyWindowInfo`), its WebContent process starts, and the log
+  shows no resource-load failure; `withGlobalTauri` is still `true` and every
+  `index.html` asset reference resolves.
+- The shipped frontend (`frontendDist: "../frontend"`, i.e. the exact files
+  embedded in the bundle) was rendered in a real browser engine with a stubbed
+  `window.__TAURI__`: the left rail (本轮/历史/设置), all 7 image intent chips
+  with 均衡 `aria-pressed="true"`, all 5 video chips with 通用更小 pressed, the
+  compiled-intent summary line (including the EXIF/GPS honesty note), the
+  output-mode row, the queue header, and the run bar (队列为空 / CPU 自动 /
+  追加 / 清除全部 / 开始压缩) all paint with their design-system colours. Only
+  stub-caused messages appeared (missing `onDragDropEvent`, which the app
+  handles by falling back to HTML5 DnD, and the deliberately rejected
+  `check_for_update`).
+- **Still pending**: clicking through the new workspace in the *signed* bundle
+  on this desktop. The window stayed occluded behind pre-existing user windows
+  (`window occluded 1`, WebKit discarded its layers, so Computer Use captured
+  only the `#f8f6f8` window background), `open` did not take focus away from
+  them, and this shell has no Screen Recording permission
+  (`screencapture -l… → could not create image from window`). No user window
+  was moved, hidden, or closed to work around this. Real-device acceptance of
+  the redesign therefore remains a human step.
+
+Gate status: this release followed the v0.1.x precedent — the user asked for
+推送/发版, and the outstanding gate items below are **not** marked passed:
+signed-sandbox (App Store) runtime check, the §11 video acceptance matrix, the
+FFmpeg GPL licensing review, and the signed Direct GUI pass above.
+
 ## Release gate (per [AGENTS.md](../AGENTS.md))
 
 Before any tag/Release: full three-track build, signed Direct runtime check,
